@@ -1,0 +1,40 @@
+{
+  "server_list": [
+    "Mirror",
+    "Create"
+  ],
+  "Mirror": {
+    "can_sync": true,
+    "description": "镜像服务器",
+    "port": 25565,
+    "rcon": {
+      "enable": false,
+      "host": "localhost",
+      "port": 25575,
+      "password": "password"
+    },
+    "source": "./server",
+    "target": "./Mirror/server",
+    "ignore_files": [
+      "pca.conf",
+      "carpet.conf"
+    ]
+  },
+  "Create": {
+    "can_sync": false,
+    "description": "创造服务器",
+    "port": 25565,
+    "rcon": {
+      "enable": false,
+      "host": "localhost",
+      "port": 25575,
+      "password": "password"
+    },
+    "source": "./server",
+    "target": "./Create/server",
+    "ignore_files": [
+      "pca.conf",
+      "carpet.conf"
+    ]
+  }
+}

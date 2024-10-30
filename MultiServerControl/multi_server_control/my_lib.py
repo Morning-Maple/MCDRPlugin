@@ -74,12 +74,13 @@ def LoadConfig():
     配置文件加载函数
     :return:
     """
-    print('[MSC] 加载配置文件中......')
+    print('[MSC] 加载配置文件......')
     global config, server_list, plugin_level
     with open("./config/MultiServerControl.json", "r", encoding="utf-8") as file:
         config = json.load(file)
     server_list = config.get("server_list", [])
     plugin_level = config.get("perm", {})
+    print('[MSC] 加载完毕')
 
 
 def CreateConfig():
@@ -90,6 +91,7 @@ def CreateConfig():
     print('[MSC] 创建配置文件中......')
     with open("./config/MultiServerControl.json", "w", encoding="utf-8") as ff:
         json.dump(default_config.DEFAULT_CONFIG, ff, indent=4, ensure_ascii=False)
+    print('[MSC] 成功创建配置文件!')
     LoadConfig()
 
 
@@ -166,7 +168,7 @@ def DisplayList(server: PluginServerInterface, source: CommandContext):
     # 权限校验
     if not GetPermissionLevel(server, source, level=plugin_level.get("list")):
         return
-    server.reply(f"§b[MSC] §e当前已配置的服务器有：{'，'.join(server_list)}")
+    server.reply(f"§b[MSC] §e当前已配置的服务器有：§6§l{'，'.join(server_list)}")
 
 
 @new_thread("MSC-Sync")
@@ -196,7 +198,7 @@ def ServerSync(InterFace, server_name):
     )
 
     end_time = datetime.datetime.now()
-    InterFace.execute(f"say §b[MSC] §6已同步至{server_name}服务器！用时{end_time - start_time}")
+    InterFace.execute(f"say §b[MSC] §2已同步至§6§l{server_name}服务器！用时§a{end_time - start_time}")
     syncFlag = False
 
 
@@ -222,14 +224,14 @@ def Sync(server: PluginServerInterface, source: CommandContext):
     can_sync = config[server_name]["can_sync"]
     if not can_sync:
         InterFace.execute(
-            f"say §b[MSC] {server_name}被设置为不允许同步！！"
+            f"say §b[MSC] §6{server_name}§f被设置为§c不允许同步§r！！"
         )
         return
 
     if syncFlag:
-        InterFace.execute("say §b[MSC] §d同步中，请勿重复提交同步任务！")
+        InterFace.execute("say §b[MSC] §e同步中，请勿重复提交同步任务！")
     else:
-        InterFace.execute("say §b[MSC] §d正在同步到镜像服务器中......")
+        InterFace.execute(f"say §b[MSC] §d正在同步到§6§l{server_name}§d服务器中......")
         InterFace.execute('save-off')
         InterFace.execute('save-all')
         ServerSync(InterFace, server_name)
@@ -250,7 +252,7 @@ def CommandExecute(InterFace):
         else:
             MirrorProcess = subprocess.Popen(MCDR_Command, shell=True)
     except Exception as e:
-        InterFace.execute(f'say §b[MSC] §6启动失败！原因为：{e}')
+        InterFace.execute(f'say §b[MSC] §4执行启动命令启动失败！原因为：§c{e}')
     os.chdir(path)
 
 
@@ -272,7 +274,7 @@ def ServerStart(InterFace, server_name):
         os.chdir(path)
     except Exception as e:
         InterFace.execute(
-            f'say §b[MSC] §6启动服务器{server_name}失败！原因为：{format(e)}'
+            f'say §b[MSC] §4启动服务器§6§l{server_name}§4失败！原因为：§c{format(e)}'
         )
 
 
@@ -294,13 +296,13 @@ def Start(server: PluginServerInterface, source: CommandContext):
         return
     InterFace = GetInterFace()
     if syncFlag:
-        InterFace.execute(f'say §b[MSC] §d§l{server_name}正在进行同步，请稍后再启动')
+        InterFace.execute(f'say §b[MSC] §6§l{server_name}正在进行同步，请稍后再启动')
     else:
-        InterFace.execute(f'say §b[MSC] §6正在启动{server_name}服务器，请稍等……')
+        InterFace.execute(f'say §b[MSC] §a正在启动§6§l{server_name}§a服务器，请稍等……')
         ServerStart(InterFace, server_name)
-        time.sleep(4)
+        time.sleep(default_config.START_WAIT_TIME)
         InterFace.execute(
-            f'say §b[MSC] §6{server_name}启动命令已执行，完全启动后请使用/server {server_name} 进行连接（需装Velocity）')
+            f'say §b[MSC] §6§l{server_name}§a启动命令已执行，完全启动后请使用§6§l/server {server_name} §a进行连接§e（需装Velocity）')
 
 
 def Stop(server: PluginServerInterface, source: CommandContext):
@@ -329,11 +331,11 @@ def Stop(server: PluginServerInterface, source: CommandContext):
             if connected:
                 conn.send_command('stop', max_retry_time=3)
                 conn.disconnect()
-                InterFace.execute(f'say §b[MSC] §6{server_name}服务器已执行关闭命令……')
+                InterFace.execute(f'say §b[MSC] §6§l{server_name}§a服务器已执行关闭命令……')
         except Exception as e:
-            InterFace.execute(f'say §b[MSC] §6无法执行命令关闭服务器：{server_name}，原因为：{format(e)}')
+            InterFace.execute(f'say §b[MSC] §4无法执行命令关闭服务器：§6§l{server_name}§4，原因为：§c{format(e)}')
     else:
-        InterFace.execute(f'say §b[MSC] §6无法通过Rcon关闭{server_name}服务器，因为{server_name}服务器的Rcon未开启！')
+        InterFace.execute(f'say §b[MSC] §4无法通过§6§lRcon§4关闭§6§l{server_name}§4服务器，因为§6§l{server_name}服务器的§6§lRcon未开启！')
 
 
 def Status(server: PluginServerInterface, source: CommandContext, is_show=True):
@@ -360,11 +362,11 @@ def Status(server: PluginServerInterface, source: CommandContext, is_show=True):
         try:
             s.bind((host, port))
             if is_show:
-                server.reply(f'§b[MSC] 服务器§e{server_name}的状态为：§c关闭')
+                server.reply(f'§b[MSC] §f服务器§6§l{server_name}§f的状态为：§c关闭')
             return False
         except OSError:
             if is_show:
-                server.reply(f'§b[MSC] 服务器§e{server_name}的状态为：§a正在运行')
+                server.reply(f'§b[MSC] §f服务器§6§l{server_name}§f的状态为：§a正在运行')
             return True
 
 
@@ -386,8 +388,8 @@ def Show(server: PluginServerInterface, source: CommandContext):
         return
 
     server.reply("================")
-    server.reply(f"§e{server_name}服务器信息如下：")
-    server.reply(f"描述：{config[server_name]['description']}")
+    server.reply(f"§6§l{server_name}服务器信息如下：")
+    server.reply(f"描述：§e{config[server_name]['description']}")
 
     if config[server_name]['can_sync'] is True:
         server.reply("是否允许被同步：§2是")
@@ -418,9 +420,9 @@ def Reload(server: PluginServerInterface, source: CommandContext):
     if not GetPermissionLevel(server, source, level=plugin_level.get("reload")):
         return
 
-    server.reply('§b[MSC] §6正在重载配置文件……')
+    server.reply('§b[MSC] §2正在重载配置文件……')
     ConfigToDo()
-    server.reply('§b[MSC] §6重载完成！')
+    server.reply('§b[MSC] §a重载完成！')
 
 
 def register(server: PluginServerInterface):

@@ -52,17 +52,19 @@ DEFAULT_CONFIG = \
 
 PLUGIN_METADATA = "1.0.0-beta.1"
 
+START_WAIT_TIME = 10
+
 # 默认帮助信息
 HELP_MSG = '''{:=^50}
-§b!!msc §r- §6显示帮助信息
-§b!!msc help §r- §6显示帮助信息
-§b!!msc list §r- §6显示在册的服务器名字
-§b!!msc reload §r- §6重新载入配置
-§b!!msc sync <server_name> §r- §6对名为server_name的服务器进行同步
-§b!!msc start <server_name> §r- §6启动名为server_name的服务器
-§b!!msc stop <server_name> §r- §6关闭名为server_name的服务器（需要开启Rcon）
-§b!!msc show <server_name> §r- §6查看名为server_name的服务器信息
-§b!!msc status <server_name> §r- §6查询名为server_name的服务器的状态（正在运行/已关闭）
+§b!!msc §f- §6显示帮助信息
+§b!!msc help §f- §6显示帮助信息
+§b!!msc list §f- §6显示在册的服务器名字
+§b!!msc reload §f- §6重新载入配置
+§b!!msc sync §e<server_name> §f- §6对名为server_name的服务器进行同步
+§b!!msc start §e<server_name> §f- §6启动名为server_name的服务器
+§b!!msc stop §e<server_name> §f- §6关闭名为server_name的服务器（需要开启Rcon）
+§b!!msc show §e<server_name> §f- §6查看名为server_name的服务器信息
+§b!!msc status §e<server_name> §f- §6查询名为server_name的服务器的状态
 {:=^50}''' \
     .format(' §b[MultiServerControl] 帮助信息 §r',
             ' §b[MultiServerControl] Version: {} §r'

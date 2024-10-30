@@ -1,18 +1,18 @@
 {
-    "id": "multi_server_control",
-    "version": "1.0.0-beta.1",
-    "name": "Multi Server Control",
-    "description": {
+  "id": "multi_server_control",
+  "version": "1.0.0-beta.1",
+  "name": "Multi Server Control",
+  "description": {
     "en_us": "a tool plugin for controlling multiple servers",
     "zh_cn": "一个用于控制多个服务器的工具插件"
-    },
-    "author": "Morning_Maple",
-    "link": "#",
-    "dependencies": {
-        "mcdreforged": ">=2.0"
-    },
-    "archive_name": "MultiServerControl",
-    "resources": [
-        "lang"
-    ]
+  },
+  "author": "Morning_Maple",
+  "link": "https://github.com/Morning-Maple/MCDRPlugin/tree/master/MultiServerControl",
+  "dependencies": {
+    "mcdreforged": ">=2.12.3"
+  },
+  "archive_name": "MultiServerControl-v1.0.0-beta.1",
+  "resources": [
+    "lang"
+  ]
 }

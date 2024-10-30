@@ -1,11 +1,6 @@
-import json
-import os.path
-import re
-import shutil
-
 from mcdreforged.api.all import *
 
-from multi_server_control import my_lib
+from . import my_lib
 
 
 def on_load(server: PluginServerInterface, old):
@@ -15,6 +10,7 @@ def on_load(server: PluginServerInterface, old):
     :param old: 该模块上一次的实例
     :return:
     """
+    server.logger.info('[MSC]插件已加载')
     my_lib.register(server)
 
 
@@ -24,7 +20,7 @@ def on_unload(server: PluginServerInterface):
     :param server: 本次实例
     :return:
     """
-    server.logger.info('[MSC]已被卸载')
+    server.logger.info('[MSC]插件已被卸载')
 
 
 def on_info(server: PluginServerInterface, info: Info):

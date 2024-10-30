@@ -1,10 +1,71 @@
-MCDReforged Plugin Template
------
+# 多子服控制插件
+### Multi Server Control
+____
+个人小服资源有限，希望能通过一个主要的服务器来控制其他子服务器（比如镜像，创造，小游戏等等），直接通过主服开停，方便操作，因此参考其他插件自己搓了一个将就着用....
+____
+**本插件只适用于*MCDR类服务器*，以下提到的服务器均默认为*MCDR类服务器*！！！**
+____
+依赖：`mcdreforged>=2.12.3`
+____
+本插件只帮助你管理服务器，在使用本插件前，你需要自行准备好至少2个服务器，然后选取其中作为主服务，另一个作为子服。
 
-A template for MCDReforged (>=2.x) plugin
+命令介绍：
+```text
+!!msc                       - 命令前缀
+!!msc help                  - 命令帮助
+!!msc list                  - 可选服务器列表
+!!msc reload                - 刷新配置文件
+!!msc <server_name> sync    - 对目标服务器与主服进行同步
+!!msc <server_name> start   - 启动目标服务器
+!!msc <server_name> stop    - 关闭目标服务器
+!!msc <server_name> show    - 查看目标服务器信息
+!!msc <server_name> status  - 查看目标服务器状态（正在运行/已关闭）
+```
 
-Try `python -m mcdreforged pack` to generate the packed plugin!
+下面就一起来配置插件吧！
 
-This template is under the CC0 license. Feel free to use it!
+首先你需要在主服中加载该插件，然后到config文件夹内寻找`MultiServerControl.json`文件，里面已经写好了一些例子，打开它：
 
-Read the doc for more information on writing a plugin: https://docs.mcdreforged.com/en/latest/plugin_dev/index.html
+下面是各个键值对的说明：
+>`server_list`：一个列表，存储你所有子服务器的名字
+
+>`perm`：一个键值对，表示每个命令的最低执行权限，如果你考虑权限问题，全部设置为 **0** 即可
+
+>`mirror`和`create`：子服务器名字，只接受[a-z][a-z0-9]，也就是开头必须是小写字母，后面可以小写字母或者数字
+> 
+> `can_sync`：是否允许同步操作（开启后允许把主服的地图同步到子服中）
+> 
+> `description`：此子服的描述
+> 
+> `port`：子服务器占用的端口（用于检测子服情况）
+> 
+> `rcon`：Rcon相关
+> >
+> > `enable`：是否启用Rcon（不启用则无法通过主服关闭子服）
+> >
+> > `host`：子服务器地址
+> >
+> > `port`：子服务器的Rcon端口号
+> >
+> > `password`：子服务器的Rcon的密码
+> 
+> `source`：主服的server文件夹地址，一般都是`./server`
+> 
+> `target`：子服的server文件夹地址，一般都是`./子服务器名字（首字母大写）/server`
+> 
+> `ignore_files`：复制时忽略的文件名字，没其他要求直接用例子给的就行，`session.lock`文件默认忽略
+
+
+我们按上面的例子，在MCDR根目录下创建2个子服务器的文件夹，分别是`Create`和`Mirror`，为什么文件夹必须大写？嗯，因为设计的时候想方便找...:
+```tree
+MCDR
+├─config（初始可能没有）
+├─Create（创造子服）
+├─log
+├─Mirror（镜像子服）
+├─plugins
+├─server
+├─config.yml
+└─permission.yml
+```
+然后把`Create`和`Mirror`这俩子服务器的相关配置内容填入到`config`下的`MultiServerControl.json`即可！

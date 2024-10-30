@@ -1,6 +1,6 @@
 {
   "id": "multi_server_control",
-  "version": "1.0.0-beta.1",
+  "version": "1.0.0",
   "name": "Multi Server Control",
   "description": {
     "en_us": "a tool plugin for controlling multiple servers",
@@ -11,7 +11,7 @@
   "dependencies": {
     "mcdreforged": ">=2.12.3"
   },
-  "archive_name": "MultiServerControl-v1.0.0-beta.1",
+  "archive_name": "MultiServerControl-v1.0.0",
   "resources": [
     "lang"
   ]

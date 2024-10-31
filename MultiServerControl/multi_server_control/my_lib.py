@@ -312,9 +312,15 @@ def Start(server: PluginServerInterface, source: CommandContext):
     # 检查名字是否在配置单中
     if not ServerNameCheck(server, server_name):
         return
+
     InterFace = GetInterFace()
+    # 检查服务器是否已开启
+    if Status(server, source, False):
+        InterFace.execute(f'say §b[MSC] §6§l{server_name}§f服务器处于§a正在运行§f状态，无须启动')
+        return
+
     if syncFlag:
-        InterFace.execute(f'say §b[MSC] §6§l{server_name}正在进行同步，请稍后再启动')
+        InterFace.execute(f'say §b[MSC] §6§l{server_name}§a正在进行同步，请稍后再启动')
     else:
         InterFace.execute(f'say §b[MSC] §a正在启动§6§l{server_name}§a服务器，请稍等……')
         ServerStart(InterFace, server_name)
@@ -341,6 +347,10 @@ def Stop(server: PluginServerInterface, source: CommandContext):
         return
 
     InterFace = GetInterFace()
+    # 检查服务器是否已关闭
+    if not Status(server, source, False):
+        InterFace.execute(f'say §b[MSC] §6§l{server_name}§f服务器处于§c关闭§f状态，无须关闭')
+        return
 
     if config[server_name]['rcon']['enable']:
         conn = RconInit(server_name)

@@ -50,7 +50,7 @@ DEFAULT_CONFIG = \
         }
     }
 
-PLUGIN_METADATA = "1.0.0"
+PLUGIN_METADATA = "1.0.1"
 
 START_WAIT_TIME = 10
 

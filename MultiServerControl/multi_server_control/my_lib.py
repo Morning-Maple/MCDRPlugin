@@ -45,7 +45,9 @@ else:
     MCDR_Command = 'python3 -m mcdreforged'
 
 
-def GetPermissionLevel(server: PluginServerInterface, source: CommandContext, only_level=False, level=0, show_warning=True):
+def GetPermissionLevel(
+        server: PluginServerInterface, source: CommandContext, only_level=False, level=0, show_warning=True
+):
     """
     权限检测
     :param server:
@@ -180,44 +182,60 @@ def ServerSync(InterFace, server_name):
     :return:
     """
     global syncFlag, config
-    syncFlag = True
-    start_time = datetime.datetime.now()
 
-    # 需要忽略的文件
-    ignore = config[server_name].get("ignore_files", []) + ["session.lock"]
-    world_temp = f'{config[server_name]["target"]}/world_temp'
+    try:
+        syncFlag = True
 
-    # 检查，目标路径下有world且忽略名单不为空的时候执行
-    target = f'{config[server_name]["target"]}/world'
-    if os.path.exists(target) and ignore:
-        # 创建一个临时文件夹存储忽略文件
-        os.makedirs(world_temp, exist_ok=True)
-        # 寻找忽略文件并且挪到临时文件夹
-        for item in os.listdir(target):
-            item_path = os.path.join(target, item)
-            # 挪到临时文件夹处
-            if os.path.isfile(item_path) and item in ignore:
-                shutil.copy2(item_path, world_temp)
-        shutil.rmtree(f'{target}/')
+        port = config[server_name]["port"]
+        host = config[server_name]["rcon"]["host"]
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind((host, port))
+            except OSError:
+                InterFace.execute(f"say §b[MSC] §2服务器§6§l{server_name}§c正在运行！§2请§c关闭后再执行同步§2！")
+                return
 
-    # 同步
-    shutil.copytree(
-        f'{config[server_name]["source"]}/world',
-        f'{config[server_name]["target"]}/world',
-        ignore=shutil.ignore_patterns(*ignore)
-    )
+        start_time = datetime.datetime.now()
 
-    # 移动忽略文件返回原处，删掉临时文件夹
-    if os.path.exists(world_temp):
-        for item in os.listdir(world_temp):
-            temp_path = os.path.join(world_temp, item)
-            target_path = os.path.join(target, item)
-            shutil.copy2(temp_path, target_path)
-        shutil.rmtree(world_temp)
+        # 需要忽略的文件
+        ignore = config[server_name].get("ignore_files", []) + ["session.lock"]
+        world_temp = f'{config[server_name]["target"]}/world_temp'
 
-    end_time = datetime.datetime.now()
-    InterFace.execute(f"say §b[MSC] §2已同步至§6§l{server_name}§2服务器！用时§a{end_time - start_time}")
-    syncFlag = False
+        # 检查，目标路径下有world且忽略名单不为空的时候执行
+        target = f'{config[server_name]["target"]}/world'
+        if os.path.exists(target) and ignore:
+            # 创建一个临时文件夹存储忽略文件
+            os.makedirs(world_temp, exist_ok=True)
+            # 寻找忽略文件并且挪到临时文件夹
+            for item in os.listdir(target):
+                item_path = os.path.join(target, item)
+                # 挪到临时文件夹处
+                if os.path.isfile(item_path) and item in ignore:
+                    shutil.copy2(item_path, world_temp)
+            shutil.rmtree(f'{target}/')
+
+        # 同步
+        shutil.copytree(
+            f'{config[server_name]["source"]}/world',
+            f'{config[server_name]["target"]}/world',
+            ignore=shutil.ignore_patterns(*ignore)
+        )
+
+        # 移动忽略文件返回原处，删掉临时文件夹
+        if os.path.exists(world_temp):
+            for item in os.listdir(world_temp):
+                temp_path = os.path.join(world_temp, item)
+                target_path = os.path.join(target, item)
+                shutil.copy2(temp_path, target_path)
+            shutil.rmtree(world_temp)
+
+        end_time = datetime.datetime.now()
+        InterFace.execute(f"say §b[MSC] §2已同步至§6§l{server_name}§2服务器！用时§a{end_time - start_time}")
+        syncFlag = False
+    except Exception as e:
+        return InterFace.execute(f"say §b[MSC] §c出现异常，请把内容报告给管理员：§f{e}")
+    finally:
+        syncFlag = False
 
 
 def Sync(server: PluginServerInterface, source: CommandContext):

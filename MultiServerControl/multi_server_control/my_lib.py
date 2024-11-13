@@ -216,7 +216,7 @@ def ServerSync(InterFace, server_name):
         shutil.rmtree(world_temp)
 
     end_time = datetime.datetime.now()
-    InterFace.execute(f"say §b[MSC] §2已同步至§6§l{server_name}服务器！用时§a{end_time - start_time}")
+    InterFace.execute(f"say §b[MSC] §2已同步至§6§l{server_name}§2服务器！用时§a{end_time - start_time}")
     syncFlag = False
 
 

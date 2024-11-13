@@ -192,7 +192,9 @@ def ServerSync(InterFace, server_name):
             try:
                 s.bind((host, port))
             except OSError:
-                InterFace.execute(f"say §b[MSC] §2服务器§6§l{server_name}§c正在运行！§2请§c关闭后再执行同步§2！")
+                InterFace.execute(f"say §b[MSC] §2服务器§6§l{server_name}§c正在运行§2！请§c关闭后再执行同步§2！")
+                time.sleep(0.5)
+                InterFace.execute(f"say §b[MSC] §d对§6§l{server_name}§d服务器的同步操作§c已经被终止§d......")
                 return
 
         start_time = datetime.datetime.now()

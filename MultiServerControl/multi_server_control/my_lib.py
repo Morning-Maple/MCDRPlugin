@@ -49,32 +49,6 @@ else:
     MCDR_Command = 'python3 -m mcdreforged'
 
 
-def GetPermissionLevel(
-        server: PluginServerInterface, source: CommandContext, only_level=False, level=0, show_warning=True
-):
-    """
-    权限检测
-    :param server:
-    :param source: 命令源
-    :param only_level: 是否只返回等级
-    :param level: 需要比较的等级
-    :param show_warning: 是否展示警告
-    :return: 0到4，如果only_level为True，否则会与level进行比较，只有source的权限大于等于level才返回True
-    """
-    target = source.source
-    if target.is_console:
-        return True
-    if only_level:
-        return target.get_permission_level()
-
-    if target.has_permission(level):
-        return True
-    else:
-        if show_warning:
-            server.reply(f"权限不足，此命令要求等级不低于{level}，而你只有等级{target.get_permission_level()}")
-        return False
-
-
 def LoadConfig():
     """
     配置文件加载函数
@@ -155,10 +129,6 @@ def DisplayHelp(server: PluginServerInterface, source: CommandContext):
     :param source: 命令源
     :return:
     """
-    global plugin_level
-    # 权限校验
-    if not GetPermissionLevel(server, source, level=plugin_level.get("help")):
-        return
     for line in default_config.HELP_MSG.splitlines():
         server.reply(line)
 
@@ -170,10 +140,7 @@ def DisplayList(server: PluginServerInterface, source: CommandContext):
     :param source: 命令源
     :return:
     """
-    global server_list, plugin_level
-    # 权限校验
-    if not GetPermissionLevel(server, source, level=plugin_level.get("list")):
-        return
+    global server_list
     server.reply(f"§b[MSC] §e当前已配置的服务器有：§6§l{'，'.join(server_list)}")
 
 
@@ -253,10 +220,7 @@ def Sync(server: PluginServerInterface, source: CommandContext, InterFaceTemp=No
     :param waiting: 是否需要等待命令执行完毕（一般同步不需要阻塞）
     :return:
     """
-    global InterFace, syncFlag, server_list, config, plugin_level
-    # 权限校验
-    if not GetPermissionLevel(server, source, level=plugin_level.get("sync")):
-        return
+    global InterFace, syncFlag, server_list, config
 
     server_name = source["server_name"]
     # 检查名字是否在配置单中
@@ -336,10 +300,7 @@ def Start(server: PluginServerInterface, source: CommandContext, InterFaceTemp=N
     :param InterFaceTemp: 实例
     :return:
     """
-    global InterFace, syncFlag, plugin_level
-    # 权限校验
-    if not GetPermissionLevel(server, source, level=plugin_level.get("start")):
-        return
+    global InterFace, syncFlag
 
     server_name = source["server_name"]
     # 检查名字是否在配置单中
@@ -373,10 +334,7 @@ def Stop(server: PluginServerInterface, source: CommandContext, InterFaceTemp=No
     :param InterFaceTemp: 命令源
     :return:
     """
-    global InterFace, plugin_level
-    # 权限校验
-    if not GetPermissionLevel(server, source, level=plugin_level.get("stop")):
-        return
+    global InterFace
 
     server_name = source["server_name"]
     # 检查名字是否在配置单中
@@ -415,10 +373,6 @@ def Status(server: PluginServerInterface, source: CommandContext, is_show=True):
     :param is_show: 是否输出到游戏内（默认True）
     :return:
     """
-    global plugin_level
-    # 权限校验
-    if not GetPermissionLevel(server, source, level=plugin_level.get("status")):
-        return
 
     server_name = source["server_name"]
     # 检查名字是否在配置单中
@@ -446,10 +400,6 @@ def Show(server: PluginServerInterface, source: CommandContext):
     :param source: 命令源
     :return:
     """
-    global plugin_level
-    # 权限校验
-    if not GetPermissionLevel(server, source, level=plugin_level.get("show")):
-        return
 
     server_name = source["server_name"]
     # 检查名字是否在配置单中
@@ -484,10 +434,6 @@ def Reload(server: PluginServerInterface, source: CommandContext):
     :param source: 命令源
     :return:
     """
-    global plugin_level
-    # 权限校验
-    if not GetPermissionLevel(server, source, level=plugin_level.get("reload")):
-        return
 
     server.reply('§b[MSC] §2正在重载配置文件……')
     ConfigToDo()
@@ -512,10 +458,7 @@ def Restart(server: PluginServerInterface, source: CommandContext, can_sync=Fals
     :param can_sync: 是否一并执行同步
     :return: None
     """
-    global InterFace, plugin_level, restartFlag
-    # 权限校验
-    if not GetPermissionLevel(server, source, level=plugin_level.get("restart")):
-        return
+    global InterFace, restartFlag
 
     server_name = source["server_name"]
     # 检查名字是否在配置单中
@@ -570,19 +513,58 @@ def register(server: PluginServerInterface):
     :param server: 服务器插件实例
     :return: None
     """
+    global plugin_level
     ConfigToDo()
     server.register_help_message("!!msc", "MultiServerControl 帮助")
-    builder = SimpleCommandBuilder()
-    builder.command("!!msc", DisplayHelp)
-    builder.command("!!msc help", DisplayHelp)
-    builder.command("!!msc list", DisplayList)
-    builder.command("!!msc reload", Reload)
-    builder.command("!!msc restart <server_name>", Restart)
-    builder.command("!!msc restart <server_name> sync", RestartSync)
-    builder.command("!!msc sync <server_name>", Sync)
-    builder.command("!!msc start <server_name>", Start)
-    builder.command("!!msc stop <server_name>", Stop)
-    builder.command("!!msc show <server_name>", Show)
-    builder.command("!!msc status <server_name>", Status)
-    builder.arg("server_name", Text)
-    builder.register(server)
+
+    server.register_command(
+        Literal("!!msc").requires(lambda src: src.has_permission(plugin_level.get("help"))).runs(DisplayHelp).
+        then(
+            Literal("help").requires(lambda src: src.has_permission(plugin_level.get("help"))).runs(DisplayHelp)
+        ).
+        then(
+            Literal("list").requires(lambda src: src.has_permission(plugin_level.get("list"))).runs(DisplayList)
+        ).
+        then(
+            Literal("reload").requires(lambda src: src.has_permission(plugin_level.get("reload"))).runs(Reload)
+        ).
+        then(
+            Literal("restart").
+            then(
+                Text("server_name").requires(lambda src: src.has_permission(plugin_level.get("restart"))).runs(Restart).
+                then(
+                    Literal("sync").requires(lambda src: src.has_permission(plugin_level.get("sync"))).runs(RestartSync)
+                )
+            )
+        ).
+        then(
+            Literal("sync").
+            then(
+                Text("server_name").requires(lambda src: src.has_permission(plugin_level.get("sync"))).runs(Sync)
+            )
+        ).
+        then(
+            Literal("start").
+            then(
+                Text("server_name").requires(lambda src: src.has_permission(plugin_level.get("start"))).runs(Start)
+            )
+        ).
+        then(
+            Literal("stop").
+            then(
+                Text("server_name").requires(lambda src: src.has_permission(plugin_level.get("stop"))).runs(Stop)
+            )
+        ).
+        then(
+            Literal("show").
+            then(
+                Text("server_name").requires(lambda src: src.has_permission(plugin_level.get("show"))).runs(Show)
+            )
+        ).
+        then(
+            Literal("status").
+            then(
+                Text("server_name").requires(lambda src: src.has_permission(plugin_level.get("status"))).runs(Status)
+            )
+        )
+    )

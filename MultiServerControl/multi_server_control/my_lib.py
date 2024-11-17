@@ -278,13 +278,13 @@ def ServerStart(InterFace, server_name):
     :param server_name: 目标服务器名字
     :return:
     """
-    global path
-    server_path_name = server_name[0].upper() + server_name[1:]
+    global path, config
+    server_path_name = os.path.basename(os.path.dirname(config[server_name]["target"]))
     try:
         # 跳转到目标文件夹下
         os.chdir(server_path_name)
         CommandExecute(InterFace)
-        time.sleep(5)
+        time.sleep(4)
         os.chdir(path)
     except Exception as e:
         InterFace.execute(

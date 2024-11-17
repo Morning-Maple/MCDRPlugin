@@ -22,11 +22,11 @@ ____
 !!msc help                  - 命令帮助
 !!msc list                  - 可选服务器列表
 !!msc reload                - 刷新配置文件
-!!msc <server_name> sync    - 对目标服务器与主服进行同步
-!!msc <server_name> start   - 启动目标服务器
-!!msc <server_name> stop    - 关闭目标服务器
-!!msc <server_name> show    - 查看目标服务器信息
-!!msc <server_name> status  - 查看目标服务器状态（正在运行/已关闭）
+!!msc sync <server_name>    - 对目标服务器与主服进行同步
+!!msc start <server_name>   - 启动目标服务器
+!!msc stop <server_name>    - 关闭目标服务器
+!!msc show <server_name>    - 查看目标服务器信息
+!!msc status <server_name>  - 查看目标服务器状态（正在运行/已关闭）
 ```
 #####   插件配置
 下面就一起来看看插件的配置说明吧！

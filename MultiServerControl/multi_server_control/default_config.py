@@ -8,6 +8,7 @@ DEFAULT_CONFIG = \
             "help": 0,
             "list": 1,
             "reload": 2,
+            "restart": 2,
             "sync": 2,
             "start": 2,
             "stop": 2,

@@ -11,21 +11,25 @@ from mcdreforged.api.all import *
 from . import default_config
 
 """
-!!msc                       - 命令前缀
-!!msc help                  - 命令帮助
-!!msc list                  - 可选服务器列表
-!!msc reload                - 刷新配置文件
-!!msc <server_name> sync    - 对目标服务器与主服进行同步
-!!msc <server_name> start   - 启动目标服务器
-!!msc <server_name> stop    - 关闭目标服务器
-!!msc <server_name> show    - 查看目标服务器信息
-!!msc <server_name> status  - 查看目标服务器状态（正在运行/已关闭）
+!!msc                               - 命令前缀
+!!msc help                          - 命令帮助
+!!msc list                          - 可选服务器列表
+!!msc reload                        - 刷新配置文件
+!!msc sync <server_name>            - 对目标服务器与主服进行同步
+!!msc restart <server_name>         - 重启目标服务器
+!!msc restart <server_name> sync    - 同步并重启目标服务器
+!!msc start <server_name>           - 启动目标服务器
+!!msc stop <server_name>            - 关闭目标服务器
+!!msc show <server_name>            - 查看目标服务器信息
+!!msc status <server_name>          - 查看目标服务器状态（正在运行/已关闭）
 """
 
 # 控制台实例
 InterFace = None
 # 同步标志
 syncFlag = False
+# 重启标志
+restartFlag = False
 # 配置文件内容
 config = None
 # 服务器已配置列表
@@ -67,7 +71,7 @@ def GetPermissionLevel(
         return True
     else:
         if show_warning:
-            server.reply(f"权限不足，此命令要求等级{level}，而你只有等级{target.get_permission_level()}")
+            server.reply(f"权限不足，此命令要求等级不低于{level}，而你只有等级{target.get_permission_level()}")
         return False
 
 
@@ -240,11 +244,13 @@ def ServerSync(InterFace, server_name):
         syncFlag = False
 
 
-def Sync(server: PluginServerInterface, source: CommandContext):
+def Sync(server: PluginServerInterface, source: CommandContext, InterFaceTemp=None, waiting=False):
     """
     服务器同步检查
     :param server:
     :param source: 命令源
+    :param InterFaceTemp: 命令源
+    :param waiting: 是否需要等待命令执行完毕（一般同步不需要阻塞）
     :return:
     """
     global InterFace, syncFlag, server_list, config, plugin_level
@@ -257,7 +263,10 @@ def Sync(server: PluginServerInterface, source: CommandContext):
     if not ServerNameCheck(server, server_name):
         return
 
-    InterFace = GetInterFace()
+    if InterFaceTemp is None:
+        InterFace = GetInterFace()
+    else:
+        InterFace = InterFaceTemp
     # 检查此名字下的服务器是否被运行同步
     can_sync = config[server_name]["can_sync"]
     if not can_sync:
@@ -272,7 +281,10 @@ def Sync(server: PluginServerInterface, source: CommandContext):
         InterFace.execute(f"say §b[MSC] §d正在同步到§6§l{server_name}§d服务器中......")
         InterFace.execute('save-off')
         InterFace.execute('save-all')
-        ServerSync(InterFace, server_name)
+        if waiting:
+            ServerSync(InterFace, server_name).join()
+        else:
+            ServerSync(InterFace, server_name)
         InterFace.execute('save-on')
 
 
@@ -316,11 +328,12 @@ def ServerStart(InterFace, server_name):
         )
 
 
-def Start(server: PluginServerInterface, source: CommandContext):
+def Start(server: PluginServerInterface, source: CommandContext, InterFaceTemp=None):
     """
     服务器启动函数
     :param server:
     :param source: 命令源
+    :param InterFaceTemp: 实例
     :return:
     """
     global InterFace, syncFlag, plugin_level
@@ -333,7 +346,10 @@ def Start(server: PluginServerInterface, source: CommandContext):
     if not ServerNameCheck(server, server_name):
         return
 
-    InterFace = GetInterFace()
+    if InterFaceTemp is None:
+        InterFace = GetInterFace()
+    else:
+        InterFace = InterFaceTemp
     # 检查服务器是否已开启
     if Status(server, source, False):
         InterFace.execute(f'say §b[MSC] §6§l{server_name}§f服务器处于§a正在运行§f状态，无须启动')
@@ -346,14 +362,15 @@ def Start(server: PluginServerInterface, source: CommandContext):
         ServerStart(InterFace, server_name)
         time.sleep(default_config.START_WAIT_TIME)
         InterFace.execute(
-            f'say §b[MSC] §6§l{server_name}§a启动命令已执行，完全启动后请使用§6§l/server {server_name} §a进行连接§e（需装Velocity）')
+            f'say §b[MSC] §6§l{server_name}§a启动命令已执行，请等待完全启动后使用§6§l/server {server_name} §a进行连接§e（需装Velocity）')
 
 
-def Stop(server: PluginServerInterface, source: CommandContext):
+def Stop(server: PluginServerInterface, source: CommandContext, InterFaceTemp=None):
     """
     服务器停止函数，需要开启rcon才可使用
     :param server:
     :param source: 命令源
+    :param InterFaceTemp: 命令源
     :return:
     """
     global InterFace, plugin_level
@@ -366,7 +383,10 @@ def Stop(server: PluginServerInterface, source: CommandContext):
     if not ServerNameCheck(server, server_name):
         return
 
-    InterFace = GetInterFace()
+    if InterFaceTemp is None:
+        InterFace = GetInterFace()
+    else:
+        InterFace = InterFaceTemp
     # 检查服务器是否已关闭
     if not Status(server, source, False):
         InterFace.execute(f'say §b[MSC] §6§l{server_name}§f服务器处于§c关闭§f状态，无须关闭')
@@ -383,7 +403,8 @@ def Stop(server: PluginServerInterface, source: CommandContext):
         except Exception as e:
             InterFace.execute(f'say §b[MSC] §4无法执行命令关闭服务器：§6§l{server_name}§4，原因为：§c{format(e)}')
     else:
-        InterFace.execute(f'say §b[MSC] §4无法通过§6§lRcon§4关闭§6§l{server_name}§4服务器，因为§6§l{server_name}服务器的§6§lRcon未开启！')
+        InterFace.execute(
+            f'say §b[MSC] §4无法通过§6§lRcon§4关闭§6§l{server_name}§4服务器，因为§6§l{server_name}服务器的§6§lRcon未开启！')
 
 
 def Status(server: PluginServerInterface, source: CommandContext, is_show=True):
@@ -473,24 +494,95 @@ def Reload(server: PluginServerInterface, source: CommandContext):
     server.reply('§b[MSC] §a重载完成！')
 
 
+def RestartSync(server: PluginServerInterface, source: CommandContext):
+    """
+    服务器重启（同步版）
+    :param server: 服务器实例
+    :param source: 消息源
+    :return: None
+    """
+    Restart(server, source, True)
+
+
+def Restart(server: PluginServerInterface, source: CommandContext, can_sync=False):
+    """
+    服务器重启（不同步版）
+    :param server: 服务器实例
+    :param source: 消息源
+    :param can_sync: 是否一并执行同步
+    :return: None
+    """
+    global InterFace, plugin_level, restartFlag
+    # 权限校验
+    if not GetPermissionLevel(server, source, level=plugin_level.get("restart")):
+        return
+
+    server_name = source["server_name"]
+    # 检查名字是否在配置单中
+    if not ServerNameCheck(server, server_name):
+        return
+
+    InterFace = GetInterFace()
+
+    if restartFlag:
+        InterFace.execute(f'say §b[MSC] §6§l{server_name}§e服务器§a正在重启中§e，请勿重复提交重启任务！')
+    else:
+        InterFace.execute(f'say §b[MSC] §6§l{server_name}§f服务器开始执行§a重启......')
+        ServerRestart(InterFace, server, source, can_sync)
+
+
+@new_thread("MSC-Restart")
+def ServerRestart(InterFace, server: PluginServerInterface, source: CommandContext, can_sync=False):
+    """
+    服务器重启操作
+    :param InterFace: 当前插件实例
+    :param server: 服务器实例
+    :param source: 消息源
+    :param can_sync: 是否一并执行同步
+    :return: None
+    """
+    global restartFlag
+    server_name = source["server_name"]
+    try:
+        # 检查服务器是否已关闭，如果没关闭，先执行关闭
+        if Status(server, source, False) is True:
+            Stop(server, source, InterFace)
+            time.sleep(4)
+        # 同步,需要阻塞到同步完成
+        if can_sync:
+            Sync(server, source, InterFace, True)
+        # 启动
+        Start(server, source, InterFace)
+        InterFace.execute(
+            f'say §b[MSC] §6§l{server_name}§a已重启完毕，请等待服务器完全启动！'
+        )
+    except Exception as e:
+        InterFace.execute(
+            f'say §b[MSC] §4重启服务器§6§l{server_name}§4失败，原因为：§c{format(e)}'
+        )
+    finally:
+        restartFlag = False
+
+
 def register(server: PluginServerInterface):
     """
     插件注册
-    :param server:
-    :return:
+    :param server: 服务器插件实例
+    :return: None
     """
     ConfigToDo()
-    print(server_list)
     server.register_help_message("!!msc", "MultiServerControl 帮助")
     builder = SimpleCommandBuilder()
     builder.command("!!msc", DisplayHelp)
     builder.command("!!msc help", DisplayHelp)
     builder.command("!!msc list", DisplayList)
     builder.command("!!msc reload", Reload)
+    builder.command("!!msc restart <server_name>", Restart)
+    builder.command("!!msc restart <server_name> sync", RestartSync)
     builder.command("!!msc sync <server_name>", Sync)
     builder.command("!!msc start <server_name>", Start)
     builder.command("!!msc stop <server_name>", Stop)
     builder.command("!!msc show <server_name>", Show)
     builder.command("!!msc status <server_name>", Status)
-    builder.arg("server_name", Text).suggests(lambda: ['mirror', 'create'])
+    builder.arg("server_name", Text)
     builder.register(server)

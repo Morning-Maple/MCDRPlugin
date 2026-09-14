@@ -37,7 +37,9 @@ with open(os.path.join(ROOT, "mcdreforged.plugin.json"), "r", encoding="utf-8") 
 version = metadata.get("version", "0.0.0")
 
 OUTPUT_NAME = f"TpMaple-v{version}.mcdr"
-OUTPUT_PATH = os.path.join(ROOT, OUTPUT_NAME)
+# 输出目录: 仓库根目录下的 output/
+OUTPUT_DIR = os.path.abspath(os.path.join(ROOT, "..", "output"))
+OUTPUT_PATH = os.path.join(OUTPUT_DIR, OUTPUT_NAME)
 
 # 需要打包到 zip 根目录的文件
 ROOT_FILES = [
@@ -50,6 +52,7 @@ PLUGIN_PACKAGE = "tp_maple"
 
 
 def pack():
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     with zipfile.ZipFile(OUTPUT_PATH, "w", zipfile.ZIP_DEFLATED) as zf:
         # 1. 根目录文件
         for filename in ROOT_FILES:

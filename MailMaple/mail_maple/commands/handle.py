@@ -52,8 +52,17 @@ def accept_mail(source: mcdr.CommandSource, context: dict):
             source.reply(TAG + "§c未找到邮件 §7#{}".format(mail_id))
         return
 
-    item_util.give_attachments(source.player, mail.attachments)
-    box.mails.remove(mail)
+    # 事务: 先发放成功, 再删邮件; 发放失败则邮件保留 (附件不丢失)
+    try:
+        item_util.give_attachments(source.player, mail.attachments)
+    except Exception as e:
+        mail_lib._log("发放附件失败, 邮件保留: {}".format(e))
+        source.reply(TAG + "§c发放附件失败, 邮件已保留, 请稍后重试")
+        return
+
+    with mail_lib.lock():
+        if mail in box.mails:
+            box.mails.remove(mail)
     mail_lib.save_player(player_uuid)
 
     source.reply(
@@ -97,19 +106,38 @@ def reject_mail(source: mcdr.CommandSource, context: dict):
         source.reply(TAG + "§c原发送者 §e{} §c已不可识别, 无法退回".format(mail.sender))
         return
 
-    box.mails.remove(mail)
+    # 锁内原子: 移除原邮件 + 检查发件人容量 + 生成回退件 + 追加; 容量满则整体回滚
+    rollback = None
+    full = False
+    already = False
+    with mail_lib.lock():
+        if mail not in box.mails:
+            already = True
+        else:
+            box.mails.remove(mail)
+            sender_box = mail_lib.get_mailbox(sender_uuid, mail.sender)
+            if mail_lib.mailbox_full(sender_box):
+                box.mails.append(mail)  # 回滚: 原邮件保留
+                full = True
+            else:
+                rollback = MailItem(
+                    id=mail_lib.gen_mail_id(),
+                    time=time.time(),
+                    title=mail.title,
+                    sender=source.player,
+                    receiver=mail.sender,
+                    is_rollback=True,
+                    attachments=list(mail.attachments),
+                )
+                sender_box.mails.append(rollback)
 
-    sender_box = mail_lib.get_mailbox(sender_uuid, mail.sender)
-    rollback = MailItem(
-        id=mail_lib.gen_mail_id(),
-        time=time.time(),
-        title=mail.title,
-        sender=source.player,
-        receiver=mail.sender,
-        is_rollback=True,
-        attachments=mail.attachments,
-    )
-    sender_box.mails.append(rollback)
+    if already:
+        source.reply(TAG + "§c该邮件已被处理")
+        return
+    if full:
+        source.reply(TAG + "§c原发送者邮箱已满, 无法退回, 邮件已保留")
+        return
+
     # 自己收件箱 (移除) + 发件人收件箱 (新增回退件) + 注册表 (编号计数)
     mail_lib.save_player(player_uuid)
     mail_lib.save_player(sender_uuid)
@@ -146,8 +174,17 @@ def cancel_mail(source: mcdr.CommandSource, context: dict):
         source.reply(TAG + "§c未找到你发出的邮件 §7#{} §c(可能对方已处理)".format(mail_id))
         return
 
-    box.mails.remove(mail)
-    item_util.give_attachments(source.player, mail.attachments)
+    # 事务: 先发放成功, 再删邮件; 发放失败则邮件保留
+    try:
+        item_util.give_attachments(source.player, mail.attachments)
+    except Exception as e:
+        mail_lib._log("退还附件失败, 邮件保留: {}".format(e))
+        source.reply(TAG + "§c退还附件失败, 邮件已保留, 请稍后重试")
+        return
+
+    with mail_lib.lock():
+        if mail in box.mails:
+            box.mails.remove(mail)
     mail_lib.save_player(box_uuid)
 
     source.reply(

@@ -87,7 +87,9 @@ def _probe_status(cfg: dict):
 
 def _players_warn(status) -> str:
     """根据探测结果生成「是否还有人」的提示文案。"""
-    if status is None or status.online <= 0:
+    if status is None:
+        return "§7无法确认目标服务器在线状态。"
+    if status.online <= 0:
         return "§7当前无玩家在线。"
     names = "：" + "、".join(status.players) if status.players else ""
     return "§c目标服务器还有 §e{}§c 名玩家在线{}，确定要操作吗？".format(status.online, names)
@@ -286,7 +288,18 @@ def _run_stop(source: mcdr.CommandSource, name: str, cfg: dict):
             return
         source.reply(TAG + "§a正在关闭 §6{}§a……".format(display))
         if _do_stop(source, name, cfg):
-            source.reply(TAG + "§6{}§a 关闭命令已执行".format(display))
+            # 轮询等待真正离线, 避免紧接着 start 撞上未退出的旧进程
+            waited = 0.0
+            while _is_online(cfg) and waited < STOP_WAIT_TIMEOUT:
+                if _shutdown.wait(STOP_POLL_INTERVAL):
+                    return
+                waited += STOP_POLL_INTERVAL
+            if _is_online(cfg):
+                source.reply(
+                    TAG + "§6{}§e 已发送关闭命令，但 §c{:.0f}s§e 内未检测到离线，请手动确认".format(display, STOP_WAIT_TIMEOUT)
+                )
+                return
+            source.reply(TAG + "§6{}§a 已关闭".format(display))
             my_lib.dispatch_event("server_stop", (name,))
     finally:
         my_lib.release_op(name)

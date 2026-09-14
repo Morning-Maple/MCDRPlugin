@@ -95,13 +95,10 @@ def delayed_teleport(source_player: str, target_player: str):
     delay = my_lib.get_tp_delay()
     threshold = my_lib.get_tp_move_threshold()
     interval = my_lib.get_tp_check_interval()
-    server = my_lib.plugin_server
 
     def _tell(player, msg):
-        """用 tellraw 给指定玩家发送一条消息 (支持 § 颜色码)。"""
-        # 先转义反斜杠再转义双引号, 避免破坏下方拼接的 JSON 文本组件
-        safe = msg.replace("\\", "\\\\").replace('"', '\\"')
-        server.execute(f'tellraw {player} {{"text":"{safe}"}}')
+        """给指定玩家发送一条消息 (支持 § 颜色码)。"""
+        my_lib.plugin_server.tell(player, msg)
 
     # 记录被传送玩家的初始位置和维度
     init_pos, init_dim = my_lib.get_player_position_and_dimension(source_player)

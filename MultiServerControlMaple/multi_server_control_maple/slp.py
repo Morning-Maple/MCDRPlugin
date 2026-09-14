@@ -123,6 +123,8 @@ class ServerListPing:
                 str_len, offset = cls._read_varint_from_bytes(payload, offset)
                 json_bytes = payload[offset:offset + str_len]
                 data = json.loads(json_bytes.decode("utf-8"))
+                if not isinstance(data, dict):
+                    return None
 
                 # 4) 可选: ping/pong 测延迟
                 latency_ms = None
@@ -130,7 +132,7 @@ class ServerListPing:
                     latency_ms = cls._measure_latency(sock)
 
                 return cls._build_status(data, latency_ms)
-        except (OSError, ValueError, json.JSONDecodeError):
+        except Exception:
             return None
 
     @classmethod

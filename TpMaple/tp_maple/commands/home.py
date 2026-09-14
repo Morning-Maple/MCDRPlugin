@@ -57,7 +57,7 @@ def set_home(source: mcdr.CommandSource, context: dict):
 
     # 读取玩家持久化数据
     pdata = my_lib.get_player_data(player_uuid)
-    pdata["player_name"] = player_name  # 顺便更新名字映射
+    my_lib.set_player_name(player_uuid, player_name)  # 顺便更新名字映射
 
     homes: dict = pdata.setdefault("homes", {})
 
@@ -74,7 +74,7 @@ def set_home(source: mcdr.CommandSource, context: dict):
         "z": pos.z,
         "dimension": dimension,
     }
-    my_lib.save_player_data()
+    my_lib.save_player(player_uuid)
 
     source.reply(
         f"{TAG}§a家 §e{home_name} §a已设置为 §b{dimension_to_cn(dimension)} "
@@ -236,6 +236,6 @@ def del_home(source: mcdr.CommandSource, context: dict):
         return
 
     del homes[home_name]
-    my_lib.save_player_data()
+    my_lib.save_player(player_uuid)
 
     source.reply(f"{TAG}§a已删除家 §e{home_name}")

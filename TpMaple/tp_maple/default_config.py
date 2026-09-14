@@ -46,8 +46,6 @@ DEFAULT_CONFIG = {
     "tp_move_threshold": 1.0,
     # 延迟传送期间位置检测间隔 (秒), 如 0.5 表示每 0.5 秒检查一次
     "tp_check_interval": 1.0,
-    # 玩家持久化数据 (按 UUID 索引)
-    "player_datas": {},
 }
 
 

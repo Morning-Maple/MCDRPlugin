@@ -36,7 +36,10 @@ def send_mail(source: mcdr.CommandSource, context: dict):
     # 用注册表里记录的规范名作为接收者名
     target_name = mail_lib.registry.known_players.get(target_uuid, target)
 
-    # 邮箱容量校验
+    # 先移走目标邮箱的过期邮件, 再校验容量 (避免过期邮件误占容量)
+    mail_lib.scan_box_expired(target_uuid)
+
+    # 邮箱容量预检 (快速失败, 避免无谓扣物品; 最终原子校验见下方锁内)
     box = mail_lib.get_mailbox(target_uuid, target_name)
     max_count = mail_lib.config.default_mail_max
     if max_count > 0 and len(box.mails) >= max_count:
@@ -68,18 +71,34 @@ def send_mail(source: mcdr.CommandSource, context: dict):
     item_util.deduct_slots(sender, used_slots)
 
     online = mail_lib.is_online(target_name)
-    mail = MailItem(
-        id=mail_lib.gen_mail_id(),
-        time=time.time(),
-        title=title,
-        sender=sender,
-        receiver=target_name,
-        is_rollback=False,
-        # 在线即时推送通知, 因此不再算"新邮件"; 离线则保持 is_new 待上线汇总
-        is_new=not online,
-        attachments=attachments,
-    )
-    box.mails.append(mail)
+
+    # 锁内原子完成「容量校验 + 生成 id + 追加」, 防止并发下突破容量
+    mail = None
+    refund = False
+    with mail_lib.lock():
+        box = mail_lib.get_mailbox(target_uuid, target_name)
+        if max_count > 0 and len(box.mails) >= max_count:
+            refund = True
+        else:
+            mail = MailItem(
+                id=mail_lib.gen_mail_id(),
+                time=time.time(),
+                title=title,
+                sender=sender,
+                receiver=target_name,
+                is_rollback=False,
+                # 在线即时推送通知, 因此不再算"新邮件"; 离线则保持 is_new 待上线汇总
+                is_new=not online,
+                attachments=attachments,
+            )
+            box.mails.append(mail)
+
+    if refund:
+        # 并发下对方邮箱刚满: 退还已扣除的物品, 不生成邮件
+        item_util.give_attachments(sender, attachments)
+        source.reply(TAG + "§c对方邮箱已满 (上限 §6{}§c), 邮件未发送, 物品已退还".format(max_count))
+        return
+
     # 只写目标玩家分片 + 注册表 (gen_mail_id 变更了编号计数)
     mail_lib.save_player(target_uuid)
     mail_lib.save_registry()

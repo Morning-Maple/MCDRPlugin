@@ -99,11 +99,13 @@ def _mirror_copy(source_root, target_root, matcher):
         shutil.rmtree(bak, ignore_errors=True)
 
     had_target = os.path.isdir(target_root)
-    if had_target:
-        # 瞬时改名 (同盘, 不复制); 失败时可原样改回
-        os.replace(target_root, bak)
-
+    moved_to_bak = False
     try:
+        if had_target:
+            # 瞬时改名 (同盘, 不复制)
+            os.replace(target_root, bak)
+            moved_to_bak = True
+
         os.makedirs(target_root, exist_ok=True)
         copied = 0
         for dirpath, _dirnames, filenames in os.walk(source_root):
@@ -119,7 +121,7 @@ def _mirror_copy(source_root, target_root, matcher):
     except BaseException:
         # 回滚: 删掉半成品目标, 把备份改回原样
         shutil.rmtree(target_root, ignore_errors=True)
-        if had_target:
+        if moved_to_bak:
             try:
                 os.replace(bak, target_root)
             except OSError as re_err:
@@ -129,7 +131,7 @@ def _mirror_copy(source_root, target_root, matcher):
         raise
 
     # 成功: 删除备份
-    if had_target:
+    if moved_to_bak:
         shutil.rmtree(bak, ignore_errors=True)
     return copied
 

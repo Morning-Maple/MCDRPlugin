@@ -62,7 +62,7 @@ class AttachmentItem(Serializable):
 
 class MailItem(Serializable):
     """一封邮件"""
-    id: str = ""                         # 邮件唯一 id: 年月日时分秒毫秒
+    id: str = ""                         # 邮件唯一 id: 年月日-序号 (如 260622-18), 每天从 1 重新计数
     time: float = 0.0                    # 发送时间戳
     title: str = ""                      # 标题
     sender: str = ""                     # 发送者名

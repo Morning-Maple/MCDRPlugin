@@ -2,6 +2,9 @@
 my_lib.py — 配置管理 / 数据存储 / 命令注册中枢
 """
 import copy
+import json
+import os
+import tempfile
 import time
 
 import mcdreforged as mcdr
@@ -20,6 +23,11 @@ from .cooldown import CooldownManager
 config: dict = copy.deepcopy(default_config.DEFAULT_CONFIG)
 plugin_server: mcdr.PluginServerInterface = None
 
+# 玩家持久化数据 (按 UUID 索引, 内存缓存; 落盘到分片文件, 见下方存储层)
+player_datas: dict = {}
+# name (小写) -> uuid 内存索引, 用于 O(1) 反查玩家家名补全
+_name_index: dict = {}
+
 # 运行时数据 (不持久化, 重启清零)
 # 冷却管理: 按 (玩家 UUID, 功能名) 记录上次使用时间
 cooldown = CooldownManager()
@@ -31,6 +39,10 @@ cooldown = CooldownManager()
 
 # 配置文件名; 实际路径为插件数据文件夹 config/tp_maple/TpMaple.json
 CONFIG_FILE_NAME = "TpMaple.json"
+
+# 玩家数据分片目录 (相对插件数据文件夹 config/tp_maple/)
+PLAYER_DATA_DIR = "player_data"
+PLAYERS_DIR = "players"
 
 
 def _fill_nested_defaults(data: dict, defaults: dict) -> bool:
@@ -70,6 +82,110 @@ def config_init():
         default_config=copy.deepcopy(default_config.DEFAULT_CONFIG),
         data_processor=_config_data_processor,
     )
+    _migrate_player_data()
+    load_player_data()
+
+
+# ============================================================
+# 玩家数据分片存储 (config/tp_maple/player_data/players/<uuid>.json)
+#   与 MailMaple 同款设计: 数据与设置分离, 按玩家分片 + 原子写,
+#   避免每次 sethome 全量重写配置、以及并发写互相覆盖。
+# ============================================================
+
+def _players_dir() -> str:
+    """玩家分片目录绝对路径"""
+    return os.path.join(plugin_server.get_data_folder(), PLAYER_DATA_DIR, PLAYERS_DIR)
+
+
+def _shard_path(player_uuid: str) -> str:
+    return os.path.join(_players_dir(), player_uuid + ".json")
+
+
+def _read_json(path: str):
+    """读 JSON; 文件不存在或损坏时返回 None"""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def _atomic_write_json(path: str, data) -> None:
+    """原子写 JSON: 先写同目录临时文件并 fsync, 再 os.replace 覆盖。"""
+    directory = os.path.dirname(path)
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".tmp_", suffix=".json", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _migrate_player_data():
+    """旧版把玩家数据存在配置文件 TpMaple.json 的 player_datas 键里,
+    现拆分为 config/tp_maple/player_data/players/<uuid>.json 分片。"""
+    legacy = config.get("player_datas")
+    if not isinstance(legacy, dict):
+        if "player_datas" in config:
+            config.pop("player_datas", None)
+            save_config()
+        return
+    migrated = 0
+    for uuid_, data in legacy.items():
+        if not isinstance(data, dict):
+            continue
+        _atomic_write_json(_shard_path(uuid_), data)
+        migrated += 1
+    config.pop("player_datas", None)
+    save_config()
+    if migrated > 0:
+        _log("[TpMaple] 已把 {} 名玩家的数据迁移到分片存储".format(migrated))
+
+
+def load_player_data():
+    """加载所有玩家分片到内存 (缺失用空数据)。"""
+    global player_datas, _name_index
+    player_datas = {}
+    _name_index = {}
+    players_dir = _players_dir()
+    os.makedirs(players_dir, exist_ok=True)
+    for fname in os.listdir(players_dir):
+        if not fname.endswith(".json") or fname.startswith(".tmp_"):
+            continue
+        uuid_ = fname[:-len(".json")]
+        raw = _read_json(os.path.join(players_dir, fname))
+        if raw is None:
+            _log("[TpMaple] 玩家分片损坏, 已跳过: {}".format(fname))
+            continue
+        if isinstance(raw, dict):
+            player_datas[uuid_] = raw
+            name = raw.get("player_name")
+            if name:
+                _name_index[name.lower()] = uuid_
+
+
+def save_player(player_uuid: str):
+    """保存单个玩家分片 (原子写); 数据全空则删除分片文件。"""
+    if plugin_server is None:
+        return
+    data = player_datas.get(player_uuid)
+    if data is None:
+        return
+    if not data.get("homes") and not data.get("player_name"):
+        try:
+            os.remove(_shard_path(player_uuid))
+        except OSError:
+            pass
+        return
+    _atomic_write_json(_shard_path(player_uuid), data)
 
 
 # ============================================================
@@ -177,19 +293,23 @@ def get_tp_check_interval() -> float:
 # ============================================================
 
 def get_player_data(player_uuid: str) -> dict:
-    """获取指定玩家的持久化数据, 不存在则创建空数据"""
-    datas = config.setdefault("player_datas", {})
-    if player_uuid not in datas:
-        datas[player_uuid] = {
+    """获取指定玩家的持久化数据 (内存), 不存在则创建空数据"""
+    if player_uuid not in player_datas:
+        player_datas[player_uuid] = {
             "player_name": "",
             "homes": {},       # { home_name: {x, y, z, dimension} }
         }
-    return datas[player_uuid]
+    return player_datas[player_uuid]
 
 
-def save_player_data():
-    """保存整个 config (含 player_datas)"""
-    save_config()
+def set_player_name(player_uuid: str, player_name: str):
+    """更新玩家名字并维护 name→uuid 内存索引。"""
+    data = get_player_data(player_uuid)
+    old_name = data.get("player_name")
+    if old_name and old_name.lower() in _name_index:
+        _name_index.pop(old_name.lower(), None)
+    data["player_name"] = player_name
+    _name_index[player_name.lower()] = player_uuid
 
 
 # ============================================================
@@ -205,7 +325,7 @@ def get_player_position_and_dimension(player_name: str):
     try:
         player_position = api.get_player_coordinate(player_name)
         player_dimension = api.get_player_dimension(player_name)
-    except ValueError:
+    except Exception:
         return None, None
 
     # 旧版 API 可能返回维度 id (int) 而非全称, 这里统一转成维度全称字符串
@@ -270,11 +390,14 @@ def get_server_player_list() -> list[str]:
 # ============================================================
 
 def get_player_home_names(player_name: str) -> list[str]:
-    """按玩家名从 player_datas 中查其所有家名 (纯内存查找, 不查询 API)"""
-    for data in config.get("player_datas", {}).values():
-        if data.get("player_name") == player_name:
-            return list(data.get("homes", {}).keys())
-    return []
+    """按玩家名查其所有家名 (O(1) 索引查找, 不查询 API)"""
+    uuid_ = _name_index.get(player_name.lower())
+    if uuid_ is None:
+        return []
+    data = player_datas.get(uuid_)
+    if not data:
+        return []
+    return list(data.get("homes", {}).keys())
 
 
 def suggest_home_names(source) -> list[str]:

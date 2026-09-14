@@ -5,6 +5,7 @@ import json
 import os
 import re
 import tempfile
+import threading
 import time
 import uuid as uuidlib
 from datetime import datetime
@@ -41,6 +42,16 @@ plugin_server: mcdr.PluginServerInterface = None
 
 # 在线玩家集合 (运行时维护, 供命令补全即时返回, 避免阻塞查询)
 online_players: set = set()
+
+# 全局锁 (可重入): 保护 mailboxes / expired_boxes / registry 的 check-then-act 复合操作。
+# 仅包裹短内存操作; 阻塞操作 (api 查询 / server.execute / 磁盘 I/O) 一律在锁外执行,
+# 避免长持锁降低并发。单锁可重入, 不存在多锁交叉, 因此不会死锁。
+_lock = threading.RLock()
+
+
+def lock():
+    """返回全局可重入锁, 供命令回调包裹 check-then-act 内存临界区。"""
+    return _lock
 
 
 # ============================================================
@@ -414,21 +425,23 @@ def get_expired_box(player_uuid: str) -> list:
 
 def scan_box_expired(player_uuid: str) -> int:
     """扫描指定邮箱, 把已过期邮件从活跃收件箱移入过期列表; 返回移动数量"""
-    box = mailboxes.get(player_uuid)
-    if box is None or not box.mails:
-        return 0
-    moved = 0
-    remaining = []
-    for mail in box.mails:
-        if is_mail_expired(mail):
-            mail.is_expired = True
-            get_expired_box(player_uuid).append(mail)
-            moved += 1
-        else:
-            remaining.append(mail)
+    with _lock:
+        box = mailboxes.get(player_uuid)
+        if box is None or not box.mails:
+            return 0
+        moved = 0
+        remaining = []
+        for mail in box.mails:
+            if is_mail_expired(mail):
+                mail.is_expired = True
+                get_expired_box(player_uuid).append(mail)
+                moved += 1
+            else:
+                remaining.append(mail)
+        if moved > 0:
+            box.mails = remaining
     if moved > 0:
-        box.mails = remaining
-        save_player(player_uuid)
+        save_player(player_uuid)  # 磁盘 I/O 放锁外
     return moved
 
 
@@ -704,26 +717,28 @@ def gen_mail_id() -> str:
     """生成邮件 id: 年月日-编号 (如 260622-18), 每天从 1 重新计数。
 
     注意: 只改内存中的 registry 计数, 由调用方在完成操作后 save_registry()。
+    全程纯内存操作, 加锁保护以防并发下编号冲突。
     """
-    today = datetime.now().strftime("%y%m%d")
-    if registry.mail_id_date != today:
-        registry.mail_id_date = today
-        registry.mail_id_seq = 0
-    existing = set()
-    for box in mailboxes.values():
-        for m in box.mails:
-            existing.add(m.id)
-    for mails in expired_boxes.values():
-        for m in mails:
-            existing.add(m.id)
-    seq = registry.mail_id_seq + 1
-    mail_id = "{}-{}".format(today, seq)
-    # 兜底: 万一与现有 id 冲突 (如手动改过配置), 继续向后找
-    while mail_id in existing:
-        seq += 1
+    with _lock:
+        today = datetime.now().strftime("%y%m%d")
+        if registry.mail_id_date != today:
+            registry.mail_id_date = today
+            registry.mail_id_seq = 0
+        existing = set()
+        for box in mailboxes.values():
+            for m in box.mails:
+                existing.add(m.id)
+        for mails in expired_boxes.values():
+            for m in mails:
+                existing.add(m.id)
+        seq = registry.mail_id_seq + 1
         mail_id = "{}-{}".format(today, seq)
-    registry.mail_id_seq = seq
-    return mail_id
+        # 兜底: 万一与现有 id 冲突 (如手动改过配置), 继续向后找
+        while mail_id in existing:
+            seq += 1
+            mail_id = "{}-{}".format(today, seq)
+        registry.mail_id_seq = seq
+        return mail_id
 
 
 def find_mail_in_box(player_uuid: str, mail_id: str):

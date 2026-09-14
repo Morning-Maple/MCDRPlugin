@@ -1,0 +1,12 @@
+{
+    "id": "mail_maple",
+    "version": "1.0.0",
+    "name": "MailMaple",
+    "description": "Minecraft 邮件插件 - mail",
+    "author": "Morning_Maple",
+    "link": "",
+    "dependencies": {
+        "mcdreforged": ">=2.15.7",
+        "minecraft_data_api": "*"
+    }
+}

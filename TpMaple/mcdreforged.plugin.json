@@ -1,0 +1,12 @@
+{
+    "id": "tp_maple",
+    "version": "1.0.0",
+    "name": "TpMaple",
+    "description": "Minecraft 传送管理插件 - sethome / tpa / back",
+    "author": "Morning_Maple",
+    "link": "",
+    "dependencies": {
+        "mcdreforged": ">=2.15.7",
+        "minecraft_data_api": "*"
+    }
+}

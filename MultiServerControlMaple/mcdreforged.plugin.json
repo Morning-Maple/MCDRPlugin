@@ -1,0 +1,11 @@
+{
+    "id": "multi_server_control_maple",
+    "version": "0.1.0",
+    "name": "MultiServerControlMaple",
+    "description": "多子服控制插件 - 通过主服管理多个子服 (基础框架)",
+    "author": "Morning_Maple",
+    "link": "",
+    "dependencies": {
+        "mcdreforged": ">=2.15.7"
+    }
+}

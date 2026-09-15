@@ -69,11 +69,6 @@ def _config_data_processor(read_data) -> bool:
     return _fill_nested_defaults(read_data, default_config.DEFAULT_CONFIG)
 
 
-def save_config():
-    """将当前 config 保存到插件数据文件夹"""
-    plugin_server.save_config_simple(config, CONFIG_FILE_NAME)
-
-
 def config_init():
     """加载配置: 文件缺失自动创建, 并补全缺失 (含嵌套) 的默认键"""
     global config
@@ -82,7 +77,6 @@ def config_init():
         default_config=copy.deepcopy(default_config.DEFAULT_CONFIG),
         data_processor=_config_data_processor,
     )
-    _migrate_player_data()
     load_player_data()
 
 
@@ -127,27 +121,6 @@ def _atomic_write_json(path: str, data) -> None:
         except OSError:
             pass
         raise
-
-
-def _migrate_player_data():
-    """旧版把玩家数据存在配置文件 TpMaple.json 的 player_datas 键里,
-    现拆分为 config/tp_maple/player_data/players/<uuid>.json 分片。"""
-    legacy = config.get("player_datas")
-    if not isinstance(legacy, dict):
-        if "player_datas" in config:
-            config.pop("player_datas", None)
-            save_config()
-        return
-    migrated = 0
-    for uuid_, data in legacy.items():
-        if not isinstance(data, dict):
-            continue
-        _atomic_write_json(_shard_path(uuid_), data)
-        migrated += 1
-    config.pop("player_datas", None)
-    save_config()
-    if migrated > 0:
-        _log("[TpMaple] 已把 {} 名玩家的数据迁移到分片存储".format(migrated))
 
 
 def load_player_data():

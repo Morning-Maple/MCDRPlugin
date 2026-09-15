@@ -204,7 +204,7 @@ python pack.py
 mail_maple/
   __init__.py        # 事件入口: on_load / on_player_joined / on_player_left / on_unload
   config.py          # Serializable 数据模型(MailSettings / MailRegistry / PlayerData) + 默认配置 + 帮助文案常量
-  mail_lib.py        # 存储层(原子写/分片/迁移)、过期扫描、真人注册表/反假人、在线集合、命令注册中枢
+  mail_lib.py        # 存储层(原子写/分片)、过期扫描、真人注册表/反假人、在线集合、命令注册中枢
   item_util.py       # 槽位解析、物品读取、give 重建、精确扣除
   snbt.py            # SNBT 序列化器
   commands/
@@ -232,7 +232,6 @@ config/mail_maple/
 - **设置与数据分离**：`MailMaple.json` 只存设置项，玩家数据全部在 `mail_data/`。手动改配置不会被邮件操作覆盖。
 - **按玩家分片**：每个玩家一个 `players/<uuid>.json`。一次发/收/拒/取消**只重写受影响玩家的分片**（涉及双方就写两个），消除整份重写的写放大，也把损坏影响限制在单个玩家。
 - **原子写**：所有写入走「临时文件 → fsync → `os.replace` 覆盖」，任何时刻文件要么旧的完整、要么新的完整，杜绝半截文件。分片数据全空时对应文件会被自动删除。
-- **自动迁移**：从旧版单文件（`MailMaple.json` 内含 `mailboxes` + `MailMaple_expired.json`）升级时，首次加载会自动拆分为上述分片布局；旧过期文件备份为 `MailMaple_expired.json.bak`。迁移以 `registry.json` 作为完成标记、破坏性收尾放最后，中途崩溃可安全重跑。**升级前建议先备份 `config/mail_maple/`。**
 
 ## 许可证
 

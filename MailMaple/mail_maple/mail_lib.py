@@ -26,7 +26,6 @@ SETTINGS_FILE = "MailMaple.json"      # 仅设置项
 DATA_DIR = "mail_data"                # 运行数据文件夹 (与设置文件同级)
 PLAYERS_DIR = "players"               # mail_data/players/ 分片目录
 REGISTRY_FILE = "registry.json"       # mail_data/registry.json
-OLD_EXPIRED_FILE = "MailMaple_expired.json"  # 旧版独立过期文件 (仅迁移时读取)
 
 # ============================================================
 # 全局状态 (内存)
@@ -55,16 +54,12 @@ def lock():
 
 
 # ============================================================
-# 存储层: 路径工具 / 原子写 / 分片读写 / 迁移
+# 存储层: 路径工具 / 原子写 / 分片读写
 # ============================================================
 
 def _data_folder() -> str:
     """插件数据文件夹绝对路径 (config/mail_maple)"""
     return plugin_server.get_data_folder()
-
-
-def _settings_path() -> str:
-    return os.path.join(_data_folder(), SETTINGS_FILE)
 
 
 def _data_dir() -> str:
@@ -195,69 +190,6 @@ def load():
             mailboxes[player_uuid] = PlayerMailBox(player_name=pdata.player_name, mails=pdata.mails)
         if pdata.expired:
             expired_boxes[player_uuid] = pdata.expired
-
-
-def _migrate_if_needed():
-    """把旧版单文件存储 (MailMaple.json 内含 mailboxes/known_players +
-    MailMaple_expired.json) 迁移为新版 mail_data/ 分片存储。仅在首次升级时执行。
-    """
-    # registry.json 作为"迁移完成"标记 (最后写入)。存在即视为已迁移,
-    # 避免中途崩溃后重复/半途迁移导致数据丢失。
-    if os.path.exists(_registry_path()):
-        return
-
-    main_raw = _read_json(_settings_path())
-    expired_raw = _read_json(os.path.join(_data_folder(), OLD_EXPIRED_FILE))
-
-    has_old_data = isinstance(main_raw, dict) and any(
-        k in main_raw for k in ("mailboxes", "known_players", "mail_id_date", "mail_id_seq")
-    )
-    if not has_old_data and not isinstance(expired_raw, dict):
-        return  # 全新安装, 没有旧数据; load() 会创建新布局
-
-    _log("§e检测到旧版单文件存储, 正在迁移到 mail_data/ 分片存储……")
-    os.makedirs(_players_dir(), exist_ok=True)
-
-    old_mailboxes = main_raw.get("mailboxes", {}) if has_old_data else {}
-    old_known = main_raw.get("known_players", {}) if has_old_data else {}
-    old_expired = expired_raw.get("boxes", {}) if isinstance(expired_raw, dict) else {}
-
-    # 1) 写玩家分片 (直接搬运原始 JSON 结构, 字段与 PlayerData 一致)
-    count = 0
-    for player_uuid in set(old_mailboxes.keys()) | set(old_expired.keys()):
-        box = old_mailboxes.get(player_uuid) or {}
-        name = box.get("player_name", "") or old_known.get(player_uuid, "")
-        mails = box.get("mails", []) or []
-        expired = old_expired.get(player_uuid, []) or []
-        if not mails and not expired:
-            continue
-        _atomic_write_json(
-            _shard_path(player_uuid),
-            {"player_name": name, "mails": mails, "expired": expired},
-        )
-        count += 1
-
-    # 2) 写注册表 —— 迁移完成标记; 数据 (分片) 已全部落盘后才写
-    _atomic_write_json(_registry_path(), {
-        "mail_id_date": main_raw.get("mail_id_date", "") if has_old_data else "",
-        "mail_id_seq": main_raw.get("mail_id_seq", 0) if has_old_data else 0,
-        "known_players": old_known,
-    })
-
-    # 3) 收尾 (破坏性操作放最后, 崩溃时可安全重跑): 剥离旧主文件的运行数据键、备份旧过期文件
-    if has_old_data:
-        settings_only = {
-            k: v for k, v in main_raw.items()
-            if k not in ("mailboxes", "known_players", "mail_id_date", "mail_id_seq")
-        }
-        _atomic_write_json(_settings_path(), settings_only)
-    old_expired_path = os.path.join(_data_folder(), OLD_EXPIRED_FILE)
-    if os.path.exists(old_expired_path):
-        try:
-            os.replace(old_expired_path, old_expired_path + ".bak")
-        except OSError:
-            pass
-    _log("§a迁移完成: 已生成 {} 个玩家分片".format(count))
 
 
 # ============================================================
@@ -784,7 +716,6 @@ def _log(msg: str):
 def register(server: mcdr.PluginServerInterface):
     global plugin_server
     plugin_server = server
-    _migrate_if_needed()
     load()
     seed_known_players_from_usercache()
     seed_online_players()

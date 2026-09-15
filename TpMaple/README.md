@@ -140,7 +140,7 @@ MCDR 权限等级对照：`0` = guest, `1` = user, `2` = helper, `3` = admin, `4
 
 #### 玩家数据（分片存储）
 
-玩家数据按 UUID 分片存储于 `config/tp_maple/player_data/players/<uuid>.json`，每个玩家一个文件，与配置文件分离。自动管理，**无需手动编辑**；数据全空时对应分片文件会被自动删除。旧版存于 `TpMaple.json` 的 `player_datas` 键会在首次加载时自动迁移为分片。
+玩家数据按 UUID 分片存储于 `config/tp_maple/player_data/players/<uuid>.json`，每个玩家一个文件，与配置文件分离。自动管理，**无需手动编辑**；数据全空时对应分片文件会被自动删除。
 
 ## 功能细节
 

@@ -240,6 +240,53 @@ def reload_cmd(source: mcdr.CommandSource):
     source.reply(TAG + "§a重载完成! §7(当前过期设置: §e{}§7)".format(describe_expire()))
 
 
+def reset_data():
+    """清空所有运行数据 (注册表 + 所有玩家邮件分片), 恢复为刚创建状态。
+
+    仅清运行数据, 不触碰设置文件 MailMaple.json (perm/容量/过期等设置保留)。
+    """
+    global registry, mailboxes, expired_boxes
+    registry = MailRegistry.get_default()
+    mailboxes = {}
+    expired_boxes = {}
+    # 删除所有玩家分片文件
+    players_dir = _players_dir()
+    if os.path.isdir(players_dir):
+        for fname in os.listdir(players_dir):
+            path = os.path.join(players_dir, fname)
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+    # 重写注册表为默认 (空)
+    save_registry()
+
+
+@mcdr.new_thread("MailMaple-reset")
+def reset_confirm(source: mcdr.CommandSource):
+    """!!mail reset confirm — 二次确认后执行清空"""
+    reset_data()
+    source.reply(TAG + "§a已清空所有邮件数据, 插件恢复为初始状态")
+    _log("管理员 {} 清空了所有邮件数据".format(
+        source.player if getattr(source, "is_player", False) else "控制台"
+    ))
+
+
+def reset_prompt(source: mcdr.CommandSource):
+    """!!mail reset — 二次确认提示"""
+    base = cmd("mail")
+    click = get_click_action()
+    confirm = RText("§c[点击确认清空]", RColor.red)
+    confirm.set_click_event(click, "{} reset confirm".format(base))
+    confirm.set_hover_text("§c确认清空所有邮件数据")
+    source.reply(RTextList(
+        TAG,
+        "§c即将清空所有邮件数据 (注册表 + 所有玩家邮件), 此操作不可撤销! ",
+        confirm,
+    ))
+    source.reply(TAG + "§7也可输入 §a{} reset confirm §7确认".format(base))
+
+
 def describe_expire() -> str:
     """把 mail_expire_seconds 描述成人类可读的过期设置文本"""
     seconds = config.mail_expire_seconds
@@ -532,7 +579,17 @@ def get_player_uuid(player_name: str) -> Optional[str]:
         except (ValueError, TypeError):
             return None
 
-    return str(raw)
+    # 字符串形式: 校验是否为合法 UUID 格式, 否则视为无效。
+    # 防止上游 minecraft_data_api 返回脏数据 (如带 System chat: 前缀的整串文本)
+    # 时被误当 UUID 写入注册表, 进而污染玩家分片文件名。
+    if isinstance(raw, str):
+        try:
+            return str(uuidlib.UUID(raw))
+        except (ValueError, AttributeError):
+            return None
+
+    # 其他类型一律视为无效
+    return None
 
 
 def get_server_player_list() -> List[str]:
@@ -741,6 +798,15 @@ def register(server: mcdr.PluginServerInterface):
             Literal("reload")
             .requires(lambda src: src.has_permission(get_perm("reload")))
             .runs(reload_cmd)
+        )
+        .then(
+            Literal("reset")
+            .requires(lambda src: src.has_permission(get_perm("reset")))
+            .runs(reset_prompt)
+            .then(
+                Literal("confirm")
+                .runs(reset_confirm)
+            )
         )
         .then(
             Literal("user")

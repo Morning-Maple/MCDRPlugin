@@ -39,6 +39,7 @@ HELP_LINES: List[Tuple[Optional[str], str]] = [
     ("manage", "§b{base} expire push §e<id> [force] §f- §6(管理)重发过期邮件"),
     ("manage", "§b{base} expire return §e<id> [force] §f- §6(管理)退回过期邮件"),
     ("reload", "§b{base} reload §f- §6(管理)重载配置"),
+    ("reset", "§b{base} reset §f- §6(管理)清空所有邮件数据"),
     ("help", "§b{base} help §f- §6显示此帮助"),
     (None, "{:=^50}".format(" §lBy: §6§lMorning_Maple §r")),
 ]
@@ -135,6 +136,7 @@ class MailSettings(Serializable):
         "expire": 0,
         "manage": 3,
         "reload": 3,
+        "reset": 3,
     }
 
     # 是否允许给自己发邮件

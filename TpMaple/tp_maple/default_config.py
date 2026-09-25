@@ -17,6 +17,7 @@ DEFAULT_CONFIG = {
     "perm": {
         "help": 0,
         "reload": 3,
+        "reset": 3,
         "sethome": 1,
         "home": 1,
         "delhome": 1,
@@ -46,6 +47,11 @@ DEFAULT_CONFIG = {
     "tp_move_threshold": 1.0,
     # 延迟传送期间位置检测间隔 (秒), 如 0.5 表示每 0.5 秒检查一次
     "tp_check_interval": 1.0,
+    # 死亡消息匹配正则 (字符串, 代码里会 re.compile)。用于从服务端输出中识别玩家死亡消息,
+    # 需包含命名捕获组: player (玩家名) 与 rest (死因描述)。
+    # 默认兼容原版 vanilla 与整合端 (modded) 的 "System chat: " 前缀;
+    # 若你的服务端输出格式不同, 可直接在配置文件中修改此正则, 无需改代码。
+    "death_message_regex": r"^(?:System chat: )?(?P<player>\w+)(?P<rest>.*)$",
 }
 
 
@@ -131,6 +137,7 @@ HELP_ENTRIES = [
     ("tpacancel", "§b{p}tpacancel  §f-- §6拒绝最近一条传送请求"),
     ("help", "§b{p}tpm help  §f-- §6显示此帮助信息"),
     ("reload", "§b{p}tpm reload  §f-- §6重新载入配置文件"),
+    ("reset", "§b{p}tpm reset  §f-- §6清空所有玩家数据"),
 ]
 
 # 帮助信息的固定头/尾 (与权限无关, 始终展示)

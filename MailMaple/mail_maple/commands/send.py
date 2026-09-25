@@ -99,9 +99,19 @@ def send_mail(source: mcdr.CommandSource, context: dict):
         source.reply(TAG + "§c对方邮箱已满 (上限 §6{}§c), 邮件未发送, 物品已退还".format(max_count))
         return
 
-    # 只写目标玩家分片 + 注册表 (gen_mail_id 变更了编号计数)
-    mail_lib.save_player(target_uuid)
-    mail_lib.save_registry()
+    # 事务落盘: 只写目标玩家分片 + 注册表 (gen_mail_id 变更了编号计数)。
+    # 任一落盘失败则全回滚 (移除内存中的邮件 + 退还已扣除的物品), 绝不吞玩家物品。
+    try:
+        mail_lib.save_player(target_uuid)
+        mail_lib.save_registry()
+    except Exception as e:
+        mail_lib._log("§c发送邮件落盘失败, 已回滚: {}".format(e))
+        with mail_lib.lock():
+            if mail is not None and mail in box.mails:
+                box.mails.remove(mail)
+        item_util.give_attachments(sender, attachments)
+        source.reply(TAG + "§c发送邮件时出现错误, 物品已退还, 请稍后重试")
+        return
 
     source.reply(
         TAG + "§a邮件已发送给 §e{} §a(附件 §6{} §a件), 邮件id: §7{}".format(

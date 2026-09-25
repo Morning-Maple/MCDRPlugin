@@ -4,6 +4,7 @@ my_lib.py — 配置管理 / 数据存储 / 命令注册中枢
 import copy
 import json
 import os
+import re
 import tempfile
 import time
 
@@ -434,11 +435,31 @@ def seed_online_players():
         online_players.add(p)
 
 
+# 死亡消息正则缓存 (pattern 字符串 -> 编译结果), 避免每次 on_info 重复编译
+_death_regex_cache = None
+
+
+def get_death_message_regex():
+    """编译死亡消息匹配正则 (带缓存)。配置缺失或非法时回退默认值并返回 None 兜底。"""
+    global _death_regex_cache
+    pattern = config.get("death_message_regex") or default_config.DEFAULT_CONFIG["death_message_regex"]
+    if _death_regex_cache is None or _death_regex_cache[0] != pattern:
+        try:
+            compiled = re.compile(pattern)
+        except re.error:
+            _log("[TpMaple] death_message_regex 配置非法, 死亡检测已禁用: {}".format(pattern))
+            compiled = None
+        _death_regex_cache = (pattern, compiled)
+    return _death_regex_cache[1]
+
+
 def handle_info_for_death(info):
     """解析服务端输出, 检测玩家死亡并发送 back 提示。
 
-    MCDR 无内置死亡事件, 这里通过匹配死亡消息实现, 依赖服务端语言
-    (关键词见 default_config.DEATH_KEYWORDS)。
+    MCDR 无内置死亡事件, 这里通过匹配死亡消息实现。匹配正则见配置项
+    death_message_regex (需含命名捕获组 player 与 rest), 可自行修改以适配
+    不同服务端格式 (如整合端的 System chat: 前缀); 死因关键词见
+    default_config.DEATH_KEYWORDS。
     """
     content = getattr(info, "content", None)
     if not content:
@@ -447,16 +468,19 @@ def handle_info_for_death(info):
     if getattr(info, "player", None):
         return
 
-    for player in online_players:
-        if not content.startswith(player):
-            continue
-        # 确认玩家名是完整词 (后续字符非字母数字下划线, 兼容中英文死亡消息)
-        rest = content[len(player):]
-        if rest and (rest[0].isalnum() or rest[0] == "_"):
-            continue
-        if any(kw in rest for kw in default_config.DEATH_KEYWORDS):
-            _on_player_death(player)
+    regex = get_death_message_regex()
+    if regex is None:
         return
+    m = regex.match(content)
+    if m is None:
+        return
+    player = m.group("player")
+    # 只对当前在线玩家做死亡判定, 避免误报
+    if player not in online_players:
+        return
+    rest = m.group("rest") or ""
+    if any(kw in rest for kw in default_config.DEATH_KEYWORDS):
+        _on_player_death(player)
 
 
 @mcdr.new_thread("TpMaple-death")
@@ -513,6 +537,49 @@ def reload_cmd(source: mcdr.CommandSource):
     source.reply("§b[TpMaple] §a重载完成！")
 
 
+def reset_data():
+    """清空所有运行数据 (玩家分片 + back 点 + 冷却), 恢复为刚创建状态。
+
+    仅清运行数据, 不触碰设置文件 TpMaple.json (perm/cd/前缀等设置保留)。
+    """
+    global player_datas, _name_index, back_points, cooldown
+    player_datas = {}
+    _name_index = {}
+    back_points = {}
+    cooldown = CooldownManager()  # 清空冷却记录 (新建实例)
+    # 删除所有玩家分片文件
+    players_dir = _players_dir()
+    if os.path.isdir(players_dir):
+        for fname in os.listdir(players_dir):
+            path = os.path.join(players_dir, fname)
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+
+@mcdr.new_thread("TpMaple-reset")
+def reset_confirm(source: mcdr.CommandSource):
+    """!!tpm reset confirm — 二次确认后执行清空"""
+    reset_data()
+    source.reply("§b[TpMaple] §a已清空所有玩家数据, 插件恢复为初始状态")
+
+
+def reset_prompt(source: mcdr.CommandSource):
+    """!!tpm reset — 二次确认提示"""
+    base = cmd("tpm")
+    click_action = get_click_action()
+    confirm = RText("§c[点击确认清空]", RColor.red)
+    confirm.c(click_action, "{} reset confirm".format(base))
+    confirm.h("§c确认清空所有玩家数据")
+    source.reply(RTextList(
+        "§b[TpMaple] ",
+        "§c即将清空所有玩家数据 (家/back点/冷却), 此操作不可撤销! ",
+        confirm,
+    ))
+    source.reply("§b[TpMaple] §7也可输入 §a{} reset confirm §7确认".format(base))
+
+
 # ============================================================
 # 内部工具
 # ============================================================
@@ -558,6 +625,15 @@ def register(server: mcdr.PluginServerInterface):
             Literal("reload")
             .requires(*_perm("reload"))
             .runs(reload_cmd)
+        )
+        .then(
+            Literal("reset")
+            .requires(*_perm("reset"))
+            .runs(reset_prompt)
+            .then(
+                Literal("confirm")
+                .runs(reset_confirm)
+            )
         )
         .then(
             # !!tpm <x> <y> <z> [dimension]

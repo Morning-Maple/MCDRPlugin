@@ -11,6 +11,9 @@ output/
 # 设计/决策笔记（仅本地保留）
 MultiServerControlMaple/temp/
 
+# 临时调试目录（仅本地保留）
+temp/
+
 # IDE
 .idea/
 .vscode/

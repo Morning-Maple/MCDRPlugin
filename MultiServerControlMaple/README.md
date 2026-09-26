@@ -1,14 +1,14 @@
 # MultiServerControlMaple
 
-一个基于 [MCDReforged](https://github.com/MCDReforged/MCDReforged) 的多子服控制插件（**基础框架**）。
+一个基于 [MCDReforged](https://github.com/MCDReforged/MCDReforged) 的多子服控制插件。
 
 > By: Morning_Maple
 
-> ⚠️ 当前为基础框架：仅搭好工程结构、配置/权限/命令注册中枢与自定义事件分发能力。多子服控制的具体功能（列出子服、启动/关闭子服、与主服同步存档、查询子服状态等）将在需求确认后补全。
+> 已在主服内实现子服的查看 / 启动 / 关闭 / 重启，以及把主服存档全量同步到子服；并对外分发自定义事件。启停功能**仅适配 Windows**。
 
 ## 背景
 
-服务器资源有限，但又想多开几个服务器，并希望通过一个主服务器（如生存服）来控制其他子服务器（镜像、创造、小游戏等），直接在主服开关子服，方便操作。本插件参考自 [Morning-Maple/MultiServerControl](https://github.com/Morning-Maple/MCDRPlugin/tree/master/MultiServerControl)，按 Maple 系插件的工程规范重搭框架。
+服务器资源有限，但又想多开几个服务器，并希望通过一个主服务器（如生存服）来控制其他子服务器（镜像、创造、小游戏等），直接在主服开关子服，方便操作。本插件参考自 [Morning-Maple/MultiServerControl](https://github.com/Morning-Maple/MCDRPlugin/tree/master/MultiServerControl)，按 Maple 系插件的工程规范重写。
 
 ## 依赖
 
@@ -75,7 +75,7 @@ python pack.py
 `perm` 默认：
 
 ```json
-{ "help": 0, "reload": 3, "show": 0, "sync": 3 }
+{ "help": 0, "reload": 3, "show": 0, "sync": 3, "start": 3, "stop": 3, "restart": 3 }
 ```
 
 `servers` 中每个子服的字段（键 = 子服英文名，用于命令参数与 Velocity `/server`）：
@@ -119,8 +119,6 @@ server.register_event_listener('multi_server_control_maple.<event_name>', on_msc
 | `multi_server_control_maple.server_start` | 已发出子服启动命令 | `(name: str,)` |
 | `multi_server_control_maple.server_stop` | 已发出子服关闭命令 | `(name: str,)` |
 | `multi_server_control_maple.server_restart` | 子服重启完成（已发出启动命令） | `(name: str,)` |
-
-> 子服启动 / 关闭等事件将随对应功能实现一并定义。
 
 ## 项目结构
 

@@ -7,6 +7,7 @@ import os
 import re
 import tempfile
 import time
+import uuid as uuidlib
 
 import mcdreforged as mcdr
 from mcdreforged.api.command import Literal, Text, Float, Integer, QuotableText
@@ -333,7 +334,17 @@ def get_player_uuid(player_name: str):
         except Exception:
             return None
 
-    return str(raw)
+    # 字符串形式: 校验是否为合法 UUID 格式, 否则视为无效。
+    # 防止上游 minecraft_data_api 返回脏数据 (如带 System chat: 前缀的整串文本)
+    # 时被误当 UUID, 进而污染玩家分片文件名 (含非法字符会导致写入失败)。
+    if isinstance(raw, str):
+        try:
+            return str(uuidlib.UUID(raw))
+        except (ValueError, AttributeError):
+            return None
+
+    # 其他类型一律视为无效
+    return None
 
 
 def get_player_last_death_position(player_name: str):

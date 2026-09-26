@@ -1,9 +1,8 @@
 """
 my_lib.py — 配置管理 / 前缀权限 / 事件分发 / 命令注册中枢
 
-提供配置读写、权限/前缀/点击行为便捷函数、子服配置访问、自定义事件分发等通用能力,
-并注册命令 (help / reload / show)。sync / start / stop / restart 等命令将在
-对应功能实现后补充。
+提供配置读写、权限/前缀/点击行为便捷函数、子服配置访问、并发锁、自定义事件分发等通用能力,
+并注册全部命令 (help / reload / show / sync / start / stop / restart)。
 """
 import copy
 import threading

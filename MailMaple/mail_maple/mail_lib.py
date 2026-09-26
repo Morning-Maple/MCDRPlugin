@@ -153,10 +153,32 @@ def save_players(player_uuids) -> None:
         save_player(u)
 
 
+def _config_data_processor(read_data) -> bool:
+    """load_config_simple 的 data_processor 回调: 补全 perm 的缺失子键。
+
+    MCDR 对 Dict 类型的字段只做整体替换, 不会补全嵌套子键。若新增了 perm 键
+    (如 reset) 而旧配置文件的 perm 里没有该键, get_perm 会兜底返回 0, 导致
+    管理命令被普通玩家执行。这里在加载时补全, 保证新增权限键沿用其默认等级。
+    """
+    if not isinstance(read_data, dict):
+        return False
+    perm = read_data.get("perm")
+    if not isinstance(perm, dict):
+        return False
+    changed = False
+    for perm_key, perm_default in MailSettings.get_default().perm.items():
+        if perm_key not in perm:
+            perm[perm_key] = perm_default
+            changed = True
+    return changed
+
+
 def load():
     """加载设置 + 注册表 + 所有玩家分片到内存 (缺失用默认值)"""
     global config, registry, mailboxes, expired_boxes
-    config = plugin_server.load_config_simple(SETTINGS_FILE, target_class=MailSettings)
+    config = plugin_server.load_config_simple(
+        SETTINGS_FILE, target_class=MailSettings, data_processor=_config_data_processor
+    )
 
     reg_raw = _read_json(_registry_path())
     if reg_raw is None:

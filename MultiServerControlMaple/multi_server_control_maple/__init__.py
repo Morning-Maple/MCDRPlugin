@@ -2,8 +2,7 @@
 __init__.py — MultiServerControlMaple 事件入口
 
 MCDR 在对应事件触发时调用本模块的同名函数, 实际逻辑下放到 my_lib / commands。
-具体的多子服控制流程 (列出子服、启动/关闭子服、与主服同步存档、查询子服状态等)
-将在需求确认后补全, 此处仅搭好骨架与挂载点。
+具体功能 (查看 / 启动 / 关闭 / 重启子服, 同步主服存档, 子服状态探测等) 见 commands 子包。
 """
 import mcdreforged as mcdr
 

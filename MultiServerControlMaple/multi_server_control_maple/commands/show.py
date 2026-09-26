@@ -79,7 +79,7 @@ def show_all(source: mcdr.CommandSource):
 
 @mcdr.new_thread("MSC-show-one")
 def show_one(source: mcdr.CommandSource, context: dict):
-    """展示指定子服详情, 含 [同步][停止/开启][重启] (暂为纯文本) 与 [连接到此服务器]。"""
+    """展示指定子服详情, 含可点击的 [同步][停止/开启][重启] 与 [连接到此服务器]。"""
     name: str = context["server_name"]
     cfg = my_lib.get_server(name)
     if cfg is None:

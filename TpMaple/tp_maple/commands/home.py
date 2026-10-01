@@ -1,16 +1,18 @@
 """
 home.py — 家园相关命令: 设置 / 列表 / 传送 / 删除
 
-所有命令回调均用 @new_thread 装饰, 以便安全调用会阻塞的 minecraft_data_api。
+流程类逻辑 (冷却 / back 点 / 传送执行 / 提示 / 审计日志) 统一由
+teleport.TeleportService 提供, 本模块只负责「定位目标点 + 传参」。
 """
 import mcdreforged as mcdr
 from mcdreforged.api.rtext import RText, RTextList, RColor
 
 from .. import my_lib
 from .. import teleport as tp_core
+from ..context import resolve_player
+from ..my_lib import TAG
+from ..pagination import Paginator
 from ..default_config import dimension_to_cn
-
-TAG = "§b[TpMaple] "
 
 # 家名保留字 (与子命令冲突), 小写比较
 RESERVED_HOME_NAMES = {"list"}
@@ -26,38 +28,31 @@ def set_home(source: mcdr.CommandSource, context: dict):
 
     名字仅允许英文字母和数字; 重名则覆盖, 新增时受数量上限限制。
     """
-    if not source.is_player:
-        source.reply(f"{TAG}§c该命令只能由玩家执行")
+    ctx = resolve_player(source)
+    if ctx is None:
         return
 
-    player_name = source.player
     home_name: str = context["home_name"]
 
     # home 名只允许英文字母和数字 (不含中文/下划线/特殊符号)
     if not home_name.isascii() or not home_name.isalnum():
-        source.reply(f"{TAG}§c名称只能包含英文字母和数字")
+        ctx.reply(f"{TAG}§c名称只能包含英文字母和数字")
         return
 
     # list 是子命令关键词 (!!mhome list), 不能作为家名, 否则会被命令解析遮蔽
     if home_name.lower() in RESERVED_HOME_NAMES:
-        source.reply(f"{TAG}§c“{home_name}”是关键词，不可作为家的名称")
-        return
-
-    # 获取 UUID
-    player_uuid = my_lib.get_player_uuid(player_name)
-    if player_uuid is None:
-        source.reply(f"{TAG}§c无法获取你的 UUID, 请重试")
+        ctx.reply(f"{TAG}§c“{home_name}”是关键词，不可作为家的名称")
         return
 
     # 获取玩家当前位置
-    pos, dimension = my_lib.get_player_position_and_dimension(player_name)
+    pos, dimension = my_lib.get_player_position_and_dimension(ctx.name)
     if pos is None:
-        source.reply(f"{TAG}§c无法获取你的位置, 请重试")
+        ctx.reply(f"{TAG}§c无法获取你的位置, 请重试")
         return
 
     # 读取玩家持久化数据
-    pdata = my_lib.get_player_data(player_uuid)
-    my_lib.set_player_name(player_uuid, player_name)  # 顺便更新名字映射
+    pdata = my_lib.get_player_data(ctx.uuid)
+    my_lib.set_player_name(ctx.uuid, ctx.name)  # 顺便更新名字映射
 
     homes: dict = pdata.setdefault("homes", {})
 
@@ -65,7 +60,7 @@ def set_home(source: mcdr.CommandSource, context: dict):
     if home_name not in homes:
         max_homes = my_lib.get_sethome_max()
         if len(homes) >= max_homes:
-            source.reply(f"{TAG}§c你已设置 {len(homes)} 个家, 达到上限 §6{max_homes}")
+            ctx.reply(f"{TAG}§c你已设置 {len(homes)} 个家, 达到上限 §6{max_homes}")
             return
 
     homes[home_name] = {
@@ -74,9 +69,9 @@ def set_home(source: mcdr.CommandSource, context: dict):
         "z": pos.z,
         "dimension": dimension,
     }
-    my_lib.save_player(player_uuid)
+    my_lib.save_player(ctx.uuid)
 
-    source.reply(
+    ctx.reply(
         f"{TAG}§a家 §e{home_name} §a已设置为 §b{dimension_to_cn(dimension)} "
         f"§7({pos.x:.1f}, {pos.y:.1f}, {pos.z:.1f})"
     )
@@ -91,44 +86,30 @@ def list_homes(source: mcdr.CommandSource, context: dict = None):
     """!!mhome / !!mhome list [页]: 分页列出玩家所有的家。
 
     每条带可点击的 [传送] / [删除] 按钮, 底部带可点击翻页。
-    页码省略默认第 1 页; 越界时自动夹取到 [1, 最大页]。
+    页码省略默认第 1 页; 越界时由 Paginator 自动夹取到 [1, 最大页]。
     """
-    if not source.is_player:
-        source.reply(f"{TAG}§c该命令只能由玩家执行")
+    ctx = resolve_player(source)
+    if ctx is None:
         return
 
-    player_name = source.player
-    player_uuid = my_lib.get_player_uuid(player_name)
-    if player_uuid is None:
-        source.reply(f"{TAG}§c无法获取你的 UUID")
-        return
-
-    pdata = my_lib.get_player_data(player_uuid)
-    homes: dict = pdata.get("homes", {})
-
+    homes: dict = my_lib.get_player_data(ctx.uuid).get("homes", {})
     if not homes:
-        source.reply(f"{TAG}§7你还没有设置任何家")
+        ctx.reply(f"{TAG}§7你还没有设置任何家")
         return
 
-    # 分页计算
-    page_size = my_lib.get_home_list_page_size()
-    items = list(homes.items())
-    total = len(items)
-    max_page = (total + page_size - 1) // page_size  # 向上取整, total>0 时至少为 1
-    page = (context or {}).get("page", 1)
-    # 越界夹取到 [1, max_page]
-    page = max(1, min(page, max_page))
-
-    start = (page - 1) * page_size
-    source.reply(
-        f"{TAG}§6已设置的家列表 ({total}/{my_lib.get_sethome_max()})  §7第 {page}/{max_page} 页"
+    pg = Paginator(
+        list(homes.items()),
+        my_lib.get_home_list_page_size(),
+        (context or {}).get("page", 1),
     )
+    ctx.reply(pg.header("已设置的家列表", cap=my_lib.get_sethome_max()))
+
     click_action = my_lib.get_click_action()
-    for name, info in items[start:start + page_size]:
+    for name, info in pg.items:
         dim_cn = dimension_to_cn(info["dimension"])
         tp_command = f"{my_lib.cmd('home')} {name}"
         del_command = f"{my_lib.cmd('delhome')} {name}"
-        source.reply(RTextList(
+        ctx.reply(RTextList(
             "  ",
             RText("[传送]", color=RColor.green).c(click_action, tp_command).h(tp_command),
             " ",
@@ -138,53 +119,38 @@ def list_homes(source: mcdr.CommandSource, context: dict = None):
         ))
 
     # 翻页控件 (仅在多于一页时显示)
-    if max_page > 1:
-        source.reply(my_lib.build_page_controls(f"{my_lib.cmd('home')} list", page, max_page))
+    if pg.max_page > 1:
+        ctx.reply(pg.controls(f"{my_lib.cmd('home')} list"))
 
 
 # ============================================================
-# !!mhome <home_name>  (传送到指定家, 受 CD 限制, 普通传送)
+# !!mhome <home_name>  (传送到指定家)
 # ============================================================
 
 @mcdr.new_thread("TpMaple-home")
 def go_home(source: mcdr.CommandSource, context: dict):
     """!!mhome <名字>: 传送到指定的家 (普通传送, 受 home 冷却限制)。"""
-    if not source.is_player:
-        source.reply(f"{TAG}§c该命令只能由玩家执行")
+    ctx = resolve_player(source)
+    if ctx is None:
         return
 
-    player_name = source.player
+    # 冷却预检: 先于目标查询, 保证「冷却中」优先于「未找到该家」
+    if not tp_core.service.ensure_ready(ctx, "home"):
+        return
+
     home_name: str = context["home_name"]
-
-    player_uuid = my_lib.get_player_uuid(player_name)
-    if player_uuid is None:
-        source.reply(f"{TAG}§c无法获取你的 UUID")
-        return
-
-    # CD 检查
-    remain = my_lib.check_cd(player_uuid, "home")
-    if remain > 0:
-        source.reply(f"{TAG}§c传送冷却中, 还需等待 §6{remain}§c 秒")
-        return
-
-    pdata = my_lib.get_player_data(player_uuid)
-    homes: dict = pdata.get("homes", {})
-    info = homes.get(home_name)
+    info = my_lib.get_player_data(ctx.uuid).get("homes", {}).get(home_name)
 
     if info is None:
-        source.reply(f"{TAG}§c未找到名为 §e{home_name} §c的家")
+        ctx.reply(f"{TAG}§c未找到名为 §e{home_name} §c的家")
         return
 
-    # 记录回家前位置为 back 点, 再普通传送
-    my_lib.record_back_point(player_name)
-    tp_core.teleport(player_name, info["x"], info["y"], info["z"], info["dimension"])
-    my_lib.record_cd(player_uuid, "home")
-
-    dim_cn = dimension_to_cn(info["dimension"])
-    source.reply(
-        f"{TAG}§a已传送到 §e{home_name} §7— {dim_cn} "
-        f"({info['x']:.1f}, {info['y']:.1f}, {info['z']:.1f})"
-    )
+    tp_core.service.precise(ctx, tp_core.TpTarget(
+        x=info["x"], y=info["y"], z=info["z"], dimension=info["dimension"],
+        feature="home",
+        label=f"家 {home_name}",
+        success_msg="§a已传送到 §e" + home_name + " §7— {dim_cn} ({x}, {y}, {z})",
+    ))
 
 
 # ============================================================
@@ -194,26 +160,18 @@ def go_home(source: mcdr.CommandSource, context: dict):
 @mcdr.new_thread("TpMaple-delhome")
 def del_home(source: mcdr.CommandSource, context: dict):
     """!!mdelhome <名字>: 删除指定的家, 不存在时提示。"""
-    if not source.is_player:
-        source.reply(f"{TAG}§c该命令只能由玩家执行")
+    ctx = resolve_player(source)
+    if ctx is None:
         return
 
-    player_name = source.player
     home_name: str = context["home_name"]
-
-    player_uuid = my_lib.get_player_uuid(player_name)
-    if player_uuid is None:
-        source.reply(f"{TAG}§c无法获取你的 UUID")
-        return
-
-    pdata = my_lib.get_player_data(player_uuid)
-    homes: dict = pdata.get("homes", {})
+    homes: dict = my_lib.get_player_data(ctx.uuid).get("homes", {})
 
     if home_name not in homes:
-        source.reply(f"{TAG}§c未找到名为 §e{home_name} §c的家")
+        ctx.reply(f"{TAG}§c未找到名为 §e{home_name} §c的家")
         return
 
     del homes[home_name]
-    my_lib.save_player(player_uuid)
+    my_lib.save_player(ctx.uuid)
 
-    source.reply(f"{TAG}§a已删除家 §e{home_name}")
+    ctx.reply(f"{TAG}§a已删除家 §e{home_name}")

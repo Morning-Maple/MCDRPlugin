@@ -22,6 +22,9 @@ from .cooldown import CooldownManager
 # 全局状态
 # ============================================================
 
+# 插件统一消息前缀 (所有对玩家输出与审计日志共用, 避免各模块重复定义)
+TAG = "§b[TpMaple] "
+
 config: dict = copy.deepcopy(default_config.DEFAULT_CONFIG)
 plugin_server: mcdr.PluginServerInterface = None
 
@@ -229,33 +232,6 @@ def get_click_action():
     return RAction.suggest_command if get_use_suggest_command() else RAction.run_command
 
 
-def build_page_controls(base_cmd: str, page: int, max_page: int) -> RTextList:
-    """构建底部可点击翻页栏: [上一页] 第 X/Y 页 [下一页] (供 home / warp 列表复用)。
-
-    :param base_cmd: 翻页命令前缀 (不含页码), 如 '!!mhome list'
-    :param page: 当前页码
-    :param max_page: 最大页码
-    """
-    click_action = get_click_action()
-    parts = ["  "]
-    if page > 1:
-        prev_cmd = f"{base_cmd} {page - 1}"
-        parts.append(
-            RText("[上一页]", color=RColor.aqua).c(click_action, prev_cmd).h(prev_cmd)
-        )
-    else:
-        parts.append(RText("[上一页]", color=RColor.dark_gray))  # 已是首页, 不可点
-    parts.append(f" §7{page}/{max_page} ")
-    if page < max_page:
-        next_cmd = f"{base_cmd} {page + 1}"
-        parts.append(
-            RText("[下一页]", color=RColor.aqua).c(click_action, next_cmd).h(next_cmd)
-        )
-    else:
-        parts.append(RText("[下一页]", color=RColor.dark_gray))  # 已是末页, 不可点
-    return RTextList(*parts)
-
-
 def cmd(name: str) -> str:
     """根据 use_maple_prefix 生成完整命令字符串。
 
@@ -325,6 +301,11 @@ def get_warp_max() -> int:
 def get_warp_list_page_size() -> int:
     """!!mwp list 每页显示的地标数量 (至少 1)"""
     return max(1, config.get("warp_list_page_size", 10))
+
+
+def is_debug_teleport_log() -> bool:
+    """是否开启传送/地标操作的审计日志 (debug_teleport_log 配置项)"""
+    return bool(config.get("debug_teleport_log", False))
 
 
 def get_tp_delay() -> int:
@@ -513,16 +494,6 @@ def get_back_point(player_name: str):
     return back_points.get(player_name)
 
 
-def record_back_point(player_name: str):
-    """查询玩家当前位置并记录为 back 点 (传送前调用); 查询失败则不记录。
-
-    注意: 内部有阻塞查询, 须在 @new_thread 线程中调用。
-    """
-    pos, dim = get_player_position_and_dimension(player_name)
-    if pos is not None:
-        set_back_point(player_name, pos.x, pos.y, pos.z, dim)
-
-
 def mark_player_online(player: str):
     """玩家加入时登记到在线集合"""
     online_players.add(player)
@@ -701,6 +672,16 @@ def _log(msg: str):
         plugin_server.logger.info(msg)
     else:
         print(msg)
+
+
+def audit(msg: str):
+    """审计日志: 仅当 debug_teleport_log 开启时写入服务端日志。
+
+    用于传送前后坐标、地标增删等「排查用」信息; 关闭时零输出, 避免高频传送
+    把日志撑爆。传入内容不含颜色码, 便于检索。
+    """
+    if is_debug_teleport_log():
+        _log(f"[TpMaple] {msg}")
 
 
 # ============================================================

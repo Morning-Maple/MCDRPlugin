@@ -17,8 +17,7 @@ from mcdreforged.api.rtext import RText, RTextList, RColor
 
 from .. import my_lib
 from .. import teleport as tp_core
-
-TAG = "§b[TpMaple] "
+from ..my_lib import TAG
 
 
 # ============================================================

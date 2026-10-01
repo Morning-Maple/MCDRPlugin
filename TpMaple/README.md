@@ -81,7 +81,8 @@
     "tp_delay": 5,
     "tpa_timeout": 60,
     "tp_move_threshold": 1.0,
-    "tp_check_interval": 0.5
+    "tp_check_interval": 0.5,
+    "debug_teleport_log": false
 }
 ```
 
@@ -154,6 +155,21 @@ MCDR 权限等级对照：`0` = guest, `1` = user, `2` = helper, `3` = admin, `4
 | `tpa_timeout` | 60 | tpa/tpahere 请求超时秒数 |
 | `tp_move_threshold` | 1.0 | 延迟传送期间移动取消阈值（±格，xyz 各自判断） |
 | `tp_check_interval` | 0.5 | 延迟传送期间位置检测间隔（秒） |
+| `debug_teleport_log` | false | 传送审计日志开关，详见下方 |
+
+#### 传送审计日志 (`debug_teleport_log`)
+
+默认 `false`，此时**不产生任何传送相关日志**。
+
+设为 `true` 后，会在服务端日志记录每次传送的**前后坐标、目标点与耗时**，便于排查「传送失败/传送到了错误位置」这类问题；地标的创建与删除也会一并记录：
+
+```
+[TpMaple] 传送成功 [home] Morning_Maple → 家 base 主世界 (10.0, 64.0, 20.0) | 前 主世界 (1.0, 64.0, 2.0) | 后 主世界 (10.0, 64.0, 20.0) | 耗时 0.51s
+[TpMaple] 传送取消 [wp] Morning_Maple → 地标 spawn 主世界 (0.0, 64.0, 0.0) | 原因 冷却剩余 3s
+[TpMaple] 地标创建 [setwp] Helper: shop 主世界 (120.0, 64.0, -30.0)
+```
+
+> 传送是高频操作，因此该开关**默认关闭**：开启后全量记录会让日志迅速膨胀，且记录「传送后坐标」需要额外回查一次玩家位置（会有一次 `tp_check_interval` 的等待）。仅在排查问题时临时开启即可。
 
 #### 玩家数据（分片存储）
 
@@ -229,7 +245,9 @@ tp_maple/
 ├── __init__.py              # 插件入口 + 事件监听（加入/离开/死亡检测）
 ├── default_config.py        # 配置定义 + 维度数据 + 死亡关键词 + 帮助生成
 ├── my_lib.py                # 配置读写 + 数据管理 + 命令注册 + 在线/死亡检测
-├── teleport.py              # 传送底层（普通 / 安全 / 延迟 / 传送校验）
+├── context.py               # 玩家命令上下文（样板收敛：仅玩家校验 / 取 UUID）
+├── pagination.py            # 通用分页类 Paginator（页码夹取 / 切片 / 翻页栏）
+├── teleport.py              # 全局传送服务 TeleportService（精确 / 安全 / 延迟）
 ├── cooldown.py              # 冷却管理工具类
 ├── utils.py                 # 工具函数（NBT int array → UUID）
 └── commands/
@@ -239,6 +257,46 @@ tp_maple/
     ├── back.py              # back
     ├── tp.py                # tpm（坐标传送）
     └── tpa.py               # tpa / tpahere / tpaccept / tpacancel
+```
+
+### 分层设计
+
+```
+commands/*            ← 业务层：只负责「定位目标点 + 组装参数」
+    │                    例如「查到家 base 的坐标」后调用传送服务
+    ├── context.py        resolve_player(source) 统一「仅玩家可执行 / 取 UUID」
+    ├── pagination.py     Paginator 统一列表分页
+    └── teleport.py       TeleportService 统一传送流程
+          ├── 冷却校验与扣除（失败自动退还）
+          ├── back 点记录（供 !!mback 返回）
+          ├── 传送执行（tp / spreadplayers）
+          ├── 结果校验（安全传送回查位置）
+          ├── 玩家提示（文案模板由业务传入，服务负责渲染）
+          └── 审计日志（受 debug_teleport_log 开关控制）
+```
+
+业务命令统一在**查询目标点之前**调用 `service.ensure_ready(ctx, feature)` 做冷却预检，这样提示顺序恒为「冷却中」优先于「未找到目标」——否则冷却中的玩家会先看到目标查询结果甚至「正在查询死亡记录……」这类过程性提示，随后才被冷却拦下，造成"传送已开始"的误导。`precise`/`safe` 内部仍会再校验一次冷却（幂等、不重复提示），因此即使漏调预检，冷却也不会失效。
+
+业务命令不直接拼 `tp` 指令、不直接操作冷却与 back 点，因此新增一个传送玩法时，只需组装一个 `TpTarget`：
+
+```python
+ctx = resolve_player(source)
+if ctx is None:
+    return
+if not tp_core.service.ensure_ready(ctx, "wp"):      # 冷却预检（先于目标查询）
+    return
+
+info = my_lib.get_warps().get(warp_name)
+if info is None:
+    ctx.reply(f"{TAG}§c未找到名为 §e{warp_name} §c的地标")
+    return
+
+tp_core.service.precise(ctx, tp_core.TpTarget(
+    x=info["x"], y=info["y"], z=info["z"], dimension=info["dimension"],
+    feature="wp",                                    # 冷却与日志的功能名
+    label=f"地标 {warp_name}",                       # 审计日志里的目标描述
+    success_msg="§a已传送到地标 §e" + warp_name + " §7— {dim_cn} ({x}, {y}, {z})",
+))
 ```
 
 ## 许可证

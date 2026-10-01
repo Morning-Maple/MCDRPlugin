@@ -15,6 +15,8 @@ MCDR 打包插件结构 (.mcdr = zip):
         ├── __init__.py
         ├── default_config.py
         ├── my_lib.py
+        ├── context.py
+        ├── pagination.py
         ├── teleport.py
         ├── utils.py
         └── commands/

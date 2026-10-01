@@ -1,6 +1,6 @@
 # TpMaple 🍁
 
-一个功能齐全的 [MCDReforged](https://github.com/Fallen-Breath/MCDReforged) 传送管理插件，提供 sethome、home、back、坐标传送、tpa 等常用传送功能。
+一个功能齐全的 [MCDReforged](https://github.com/Fallen-Breath/MCDReforged) 传送管理插件，提供 sethome、warp 地标、back、坐标传送、tpa 等常用传送功能。
 
 ## 功能一览
 
@@ -13,6 +13,11 @@
 | `!!mhome list [页]` | 分页查看家列表（带可点击翻页） |
 | `!!mhome <名字>` | 传送到指定的家 |
 | `!!mdelhome <名字>` | 删除指定的家 |
+| `!!mwp` | 列出全服地标（所有人可见） |
+| `!!mwp list [页]` | 分页查看全服地标列表（带可点击翻页） |
+| `!!mwp <名字>` | 传送到指定的全服地标 |
+| `!!msetwp <名字>` | 在当前位置创建一个全服地标（需要权限 ≥ 2） |
+| `!!mdelwp <名字>` | 删除指定的全服地标（需要权限 ≥ 2） |
 | `!!mback` | 精确传送回上一次的传送/死亡地点 |
 | `!!mback safe` | 安全传送到上一次的传送/死亡地点附近（死在岩浆/危险处时用） |
 | `!!mtpm <x> <y> <z> [维度]` | 传送到指定坐标，维度可选（不填则为当前维度） |
@@ -52,6 +57,9 @@
         "sethome": 1,
         "home": 1,
         "delhome": 1,
+        "wp": 1,
+        "setwp": 2,
+        "delwp": 2,
         "back": 1,
         "tpm": 1,
         "tpa": 1,
@@ -61,12 +69,15 @@
     },
     "cd": {
         "home": 100,
+        "wp": 10,
         "back": 60,
         "tpm": 60,
         "tpa": 60
     },
     "default_sethome_max": 3,
     "home_list_page_size": 10,
+    "warp_max": 20,
+    "warp_list_page_size": 10,
     "tp_delay": 5,
     "tpa_timeout": 60,
     "tp_move_threshold": 1.0,
@@ -107,6 +118,9 @@ MCDR 权限等级对照：`0` = guest, `1` = user, `2` = helper, `3` = admin, `4
 | `sethome` | 1 | 设置家 |
 | `home` | 1 | 传送回家 |
 | `delhome` | 1 | 删除家 |
+| `wp` | 1 | 查看地标列表 / 传送到地标 |
+| `setwp` | 2 | 创建地标（管理级） |
+| `delwp` | 2 | 删除地标（管理级） |
 | `back` | 1 | 回到死亡点 |
 | `tpm` | 1 | 坐标传送 |
 | `tpa` | 1 | 请求传送到他人 |
@@ -114,7 +128,7 @@ MCDR 权限等级对照：`0` = guest, `1` = user, `2` = helper, `3` = admin, `4
 | `tpaccept` | 0 | 同意传送请求 |
 | `tpacancel` | 0 | 拒绝传送请求 |
 
-> **帮助信息按权限过滤**：执行 `!!tpm` / `!!tpm help` 时，帮助列表只会显示该玩家**权限足够**的命令行。例如权限等级为 `1` 的玩家看不到 `tpahere`（需 2）和 `reload`（需 3）。控制台/管理员可见全部。
+> **帮助信息按权限过滤**：执行 `!!tpm` / `!!tpm help` 时，帮助列表只会显示该玩家**权限足够**的命令行。例如权限等级为 `1` 的玩家看不到 `tpahere`（需 2）、`setwp` / `delwp`（需 2）和 `reload`（需 3）。控制台/管理员可见全部。
 
 #### 冷却时间 (`cd`)
 
@@ -123,6 +137,7 @@ MCDR 权限等级对照：`0` = guest, `1` = user, `2` = helper, `3` = admin, `4
 | 键 | 默认值 | 说明 |
 |----|--------|------|
 | `home` | 100 | home 传送冷却 |
+| `wp` | 10 | warp 地标传送冷却 |
 | `back` | 60 | back 传送冷却 |
 | `tpm` | 60 | 坐标传送冷却 |
 | `tpa` | 60 | tpa/tpahere 冷却 |
@@ -133,6 +148,8 @@ MCDR 权限等级对照：`0` = guest, `1` = user, `2` = helper, `3` = admin, `4
 |----|--------|------|
 | `default_sethome_max` | 3 | 每个玩家最多设置的家数量 |
 | `home_list_page_size` | 10 | `!!mhome list` 每页显示的家数量 |
+| `warp_max` | 20 | 全服地标总数量上限（所有玩家共用） |
+| `warp_list_page_size` | 10 | `!!mwp list` 每页显示的地标数量 |
 | `tp_delay` | 5 | tpa/tpahere 同意后延迟传送秒数，`0` 为立即传送 |
 | `tpa_timeout` | 60 | tpa/tpahere 请求超时秒数 |
 | `tp_move_threshold` | 1.0 | 延迟传送期间移动取消阈值（±格，xyz 各自判断） |
@@ -141,6 +158,10 @@ MCDR 权限等级对照：`0` = guest, `1` = user, `2` = helper, `3` = admin, `4
 #### 玩家数据（分片存储）
 
 玩家数据按 UUID 分片存储于 `config/tp_maple/player_data/players/<uuid>.json`，每个玩家一个文件，与配置文件分离。自动管理，**无需手动编辑**；数据全空时对应分片文件会被自动删除。
+
+#### 地标数据（全服共享）
+
+全服地标存储于 `config/tp_maple/warp_data/warps.json`（单文件，原子写），与玩家数据分离。同样自动管理，**无需手动编辑**；无地标时文件会被自动删除。
 
 ## 功能细节
 
@@ -153,10 +174,28 @@ MCDR 权限等级对照：`0` = guest, `1` = user, `2` = helper, `3` = admin, `4
 - `!!mhome` 列表中每个家前都带 **可点击 `[传送]` / `[删除]` 按钮**（点击行为见 `use_suggest_command`）
 - delhome 删除指定名字的家，名字不存在时会提示
 
+### warp（地标传送）
+
+与 `home` 不同，地标是**全服共享**的：任何玩家都能查看列表并传送，因此适合用于服务器公共传送点（主城、商店、刷怪塔等）。
+
+- **可见性**：`!!mwp` 列表对所有玩家（含权限 1）可见，能互相看到对方创建的地标
+- **权限分离**：
+  - 查看列表与传送使用 `wp` 权限（默认 1）
+  - 创建 / 删除使用 `setwp` / `delwp` 权限（默认 2，即 helper 及以上）
+- **数量上限**：`warp_max`（默认 20）为**全服共用**上限，`setwp` 新增时会校验（`!!mwp` 标题栏显示 `当前数量/上限`）；可先 `!!mdelwp` 腾出名额
+- **名字规则**：与家一致，**仅允许英文字母和数字**；`list` 为保留字
+- **重名处理**：`!!msetwp` 遇到同名地标会**拒绝**，提示先 `!!mdelwp` 删除，避免误覆盖他人地标
+- **列表**：`!!mwp` / `!!mwp list [页]` 分页展示（每页条数见 `warp_list_page_size`），标题显示 `(总数/上限) 第 x/y 页`；每条显示维度中文名、坐标、创建者
+  - 每条前带 **可点击 `[传送]` 按钮**；有 `delwp` 权限的玩家额外带 **可点击 `[删除]` 按钮**（点击行为见 `use_suggest_command`）
+  - 底部带可点击的 `[上一页]` / `[下一页]`
+  - `!!mwp <名字>` 传送到指定地标（普通传送，受 `cd.wp` 冷却限制）
+- **back 联动**：地标传送前会记录传送前位置为 back 点，落地后可 `!!mback` 返回
+- **reset 联动**：执行 `!!mtpm reset` 会连同所有地标一并清空
+
 ### back
 
 - **back 点（上一次的传送/死亡地点）**：插件维护一个运行时（不持久化，重启/重载清空）的「back 点」，会被以下事件覆盖为**最近一次**的位置：
-  - 调用本插件的传送前的位置：`tpm`、接受 `tpa`/`tpahere`、`home`、以及 `back` 自身（因此连续 `back` 可在两点间来回）
+  - 调用本插件的传送前的位置：`tpm`、接受 `tpa`/`tpahere`、`home`、`wp`（地标传送）、以及 `back` 自身（因此连续 `back` 可在两点间来回）
   - 玩家死亡：死亡时记录死亡地点（读取原版 `LastDeathLocation`）
   - 若运行时尚无 back 点（如刚重启），`!!mback` 会回退到实时查询原版死亡点
 - `!!mback`：**精确**传送回 back 点（x/y/z/维度完全一致），成功提示「已回到上一次的传送/死亡地点」
@@ -196,6 +235,7 @@ tp_maple/
 └── commands/
     ├── __init__.py
     ├── home.py              # sethome / home / delhome
+    ├── warp.py              # setwp / wp / delwp（全服地标）
     ├── back.py              # back
     ├── tp.py                # tpm（坐标传送）
     └── tpa.py               # tpa / tpahere / tpaccept / tpacancel

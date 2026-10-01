@@ -139,29 +139,7 @@ def list_homes(source: mcdr.CommandSource, context: dict = None):
 
     # 翻页控件 (仅在多于一页时显示)
     if max_page > 1:
-        source.reply(_build_page_controls(page, max_page, click_action))
-
-
-def _build_page_controls(page: int, max_page: int, click_action) -> RTextList:
-    """构建底部可点击翻页栏: [上一页] 第 X/Y 页 [下一页]"""
-    list_cmd = my_lib.cmd("home") + " list"
-    parts = ["  "]
-    if page > 1:
-        prev_cmd = f"{list_cmd} {page - 1}"
-        parts.append(
-            RText("[上一页]", color=RColor.aqua).c(click_action, prev_cmd).h(prev_cmd)
-        )
-    else:
-        parts.append(RText("[上一页]", color=RColor.dark_gray))  # 已是首页, 不可点
-    parts.append(f" §7{page}/{max_page} ")
-    if page < max_page:
-        next_cmd = f"{list_cmd} {page + 1}"
-        parts.append(
-            RText("[下一页]", color=RColor.aqua).c(click_action, next_cmd).h(next_cmd)
-        )
-    else:
-        parts.append(RText("[下一页]", color=RColor.dark_gray))  # 已是末页, 不可点
-    return RTextList(*parts)
+        source.reply(my_lib.build_page_controls(f"{my_lib.cmd('home')} list", page, max_page))
 
 
 # ============================================================

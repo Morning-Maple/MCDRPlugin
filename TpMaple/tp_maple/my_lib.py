@@ -30,6 +30,10 @@ player_datas: dict = {}
 # name (小写) -> uuid 内存索引, 用于 O(1) 反查玩家家名补全
 _name_index: dict = {}
 
+# 全局地标数据 (全服共享, 不按玩家分片);
+# 结构: {"warps": { 地标名: {x, y, z, dimension, creator, created_at} }}
+warp_data: dict = {"warps": {}}
+
 # 运行时数据 (不持久化, 重启清零)
 # 冷却管理: 按 (玩家 UUID, 功能名) 记录上次使用时间
 cooldown = CooldownManager()
@@ -45,6 +49,10 @@ CONFIG_FILE_NAME = "TpMaple.json"
 # 玩家数据分片目录 (相对插件数据文件夹 config/tp_maple/)
 PLAYER_DATA_DIR = "player_data"
 PLAYERS_DIR = "players"
+
+# 全局地标数据文件 (相对插件数据文件夹 config/tp_maple/)
+WARP_DATA_DIR = "warp_data"
+WARP_FILE = "warps.json"
 
 
 def _fill_nested_defaults(data: dict, defaults: dict) -> bool:
@@ -80,6 +88,7 @@ def config_init():
         data_processor=_config_data_processor,
     )
     load_player_data()
+    load_warp_data()
 
 
 # ============================================================
@@ -164,6 +173,44 @@ def save_player(player_uuid: str):
 
 
 # ============================================================
+# 全局地标 (warp) 数据存储 (config/tp_maple/warp_data/warps.json)
+#   与玩家数据分离: 地标为全服共享, 单文件 + 原子写即可。
+# ============================================================
+
+def _warp_file_path() -> str:
+    """地标数据文件绝对路径"""
+    return os.path.join(plugin_server.get_data_folder(), WARP_DATA_DIR, WARP_FILE)
+
+
+def load_warp_data():
+    """加载全局地标数据; 文件缺失或损坏时置为空数据。"""
+    global warp_data
+    raw = _read_json(_warp_file_path())
+    if isinstance(raw, dict) and isinstance(raw.get("warps"), dict):
+        warp_data = raw
+    else:
+        warp_data = {"warps": {}}
+
+
+def save_warp_data():
+    """保存全局地标数据 (原子写); 无地标时删除文件。"""
+    if plugin_server is None:
+        return
+    if not warp_data.get("warps"):
+        try:
+            os.remove(_warp_file_path())
+        except OSError:
+            pass
+        return
+    _atomic_write_json(_warp_file_path(), warp_data)
+
+
+def get_warps() -> dict:
+    """获取全局地标字典 (内存引用), 结构: {名字: {x, y, z, dimension, creator, created_at}}"""
+    return warp_data.setdefault("warps", {})
+
+
+# ============================================================
 # 权限 / 冷却 / 配置读取 便捷函数
 # ============================================================
 
@@ -180,6 +227,33 @@ def get_use_suggest_command() -> bool:
 def get_click_action():
     """根据配置返回可点击文本的点击行为 (suggest_command / run_command)"""
     return RAction.suggest_command if get_use_suggest_command() else RAction.run_command
+
+
+def build_page_controls(base_cmd: str, page: int, max_page: int) -> RTextList:
+    """构建底部可点击翻页栏: [上一页] 第 X/Y 页 [下一页] (供 home / warp 列表复用)。
+
+    :param base_cmd: 翻页命令前缀 (不含页码), 如 '!!mhome list'
+    :param page: 当前页码
+    :param max_page: 最大页码
+    """
+    click_action = get_click_action()
+    parts = ["  "]
+    if page > 1:
+        prev_cmd = f"{base_cmd} {page - 1}"
+        parts.append(
+            RText("[上一页]", color=RColor.aqua).c(click_action, prev_cmd).h(prev_cmd)
+        )
+    else:
+        parts.append(RText("[上一页]", color=RColor.dark_gray))  # 已是首页, 不可点
+    parts.append(f" §7{page}/{max_page} ")
+    if page < max_page:
+        next_cmd = f"{base_cmd} {page + 1}"
+        parts.append(
+            RText("[下一页]", color=RColor.aqua).c(click_action, next_cmd).h(next_cmd)
+        )
+    else:
+        parts.append(RText("[下一页]", color=RColor.dark_gray))  # 已是末页, 不可点
+    return RTextList(*parts)
 
 
 def cmd(name: str) -> str:
@@ -241,6 +315,16 @@ def get_sethome_max() -> int:
 def get_home_list_page_size() -> int:
     """!!mhome list 每页显示的家数量 (至少 1)"""
     return max(1, config.get("home_list_page_size", 10))
+
+
+def get_warp_max() -> int:
+    """全服地标总数量上限 (所有玩家共用)"""
+    return config.get("warp_max", 20)
+
+
+def get_warp_list_page_size() -> int:
+    """!!mwp list 每页显示的地标数量 (至少 1)"""
+    return max(1, config.get("warp_list_page_size", 10))
 
 
 def get_tp_delay() -> int:
@@ -390,6 +474,16 @@ def suggest_home_names(source) -> list[str]:
     if getattr(source, "is_player", False):
         return get_player_home_names(source.player)
     return []
+
+
+def get_warp_names() -> list[str]:
+    """所有地标名 (O(1) 内存读取, 不查询 API, 可用于命令补全)"""
+    return list(get_warps().keys())
+
+
+def suggest_warp_names() -> list[str]:
+    """wp / setwp / delwp 的地标名补全: 返回全服已设置的地标名"""
+    return get_warp_names()
 
 
 def suggest_online_players() -> list[str]:
@@ -549,15 +643,21 @@ def reload_cmd(source: mcdr.CommandSource):
 
 
 def reset_data():
-    """清空所有运行数据 (玩家分片 + back 点 + 冷却), 恢复为刚创建状态。
+    """清空所有运行数据 (玩家分片 + 地标 + back 点 + 冷却), 恢复为刚创建状态。
 
     仅清运行数据, 不触碰设置文件 TpMaple.json (perm/cd/前缀等设置保留)。
     """
-    global player_datas, _name_index, back_points, cooldown
+    global player_datas, _name_index, back_points, cooldown, warp_data
     player_datas = {}
     _name_index = {}
     back_points = {}
     cooldown = CooldownManager()  # 清空冷却记录 (新建实例)
+    # 清空地标数据 (内存 + 文件)
+    warp_data = {"warps": {}}
+    try:
+        os.remove(_warp_file_path())
+    except OSError:
+        pass
     # 删除所有玩家分片文件
     players_dir = _players_dir()
     if os.path.isdir(players_dir):
@@ -573,7 +673,7 @@ def reset_data():
 def reset_confirm(source: mcdr.CommandSource):
     """!!tpm reset confirm — 二次确认后执行清空"""
     reset_data()
-    source.reply("§b[TpMaple] §a已清空所有玩家数据, 插件恢复为初始状态")
+    source.reply("§b[TpMaple] §a已清空所有玩家数据与地标, 插件恢复为初始状态")
 
 
 def reset_prompt(source: mcdr.CommandSource):
@@ -582,10 +682,10 @@ def reset_prompt(source: mcdr.CommandSource):
     click_action = get_click_action()
     confirm = RText("§c[点击确认清空]", RColor.red)
     confirm.c(click_action, "{} reset confirm".format(base))
-    confirm.h("§c确认清空所有玩家数据")
+    confirm.h("§c确认清空所有玩家数据与全服地标")
     source.reply(RTextList(
         "§b[TpMaple] ",
-        "§c即将清空所有玩家数据 (家/back点/冷却), 此操作不可撤销! ",
+        "§c即将清空所有玩家数据与全服地标 (家/地标/back点/冷却), 此操作不可撤销! ",
         confirm,
     ))
     source.reply("§b[TpMaple] §7也可输入 §a{} reset confirm §7确认".format(base))
@@ -615,6 +715,7 @@ def register(server: mcdr.PluginServerInterface):
 
     # 延迟导入命令模块, 避免循环导入
     from .commands import home as home_cmd
+    from .commands import warp as warp_cmd
     from .commands import back as back_cmd
     from .commands import tp as tp_cmd
     from .commands import tpa as tpa_cmd
@@ -702,6 +803,48 @@ def register(server: mcdr.PluginServerInterface):
             QuotableText("home_name")
             .suggests(suggest_home_names)
             .runs(home_cmd.del_home)
+        )
+    )
+
+    # --- !!mwp [list [page] | <name>] ---
+    server.register_command(
+        Literal(cmd("wp"))
+        .requires(*_perm("wp"))
+        .runs(warp_cmd.list_warps)
+        .then(
+            # !!mwp list [页]: 分页查看全服地标
+            Literal("list")
+            .runs(warp_cmd.list_warps)
+            .then(
+                Integer("page").runs(warp_cmd.list_warps)
+            )
+        )
+        .then(
+            QuotableText("warp_name")
+            .suggests(suggest_warp_names)
+            .runs(warp_cmd.go_warp)
+        )
+    )
+
+    # --- !!msetwp <name> ---
+    server.register_command(
+        Literal(cmd("setwp"))
+        .requires(*_perm("setwp"))
+        .then(
+            QuotableText("warp_name")
+            .suggests(suggest_warp_names)
+            .runs(warp_cmd.set_warp)
+        )
+    )
+
+    # --- !!mdelwp <name> ---
+    server.register_command(
+        Literal(cmd("delwp"))
+        .requires(*_perm("delwp"))
+        .then(
+            QuotableText("warp_name")
+            .suggests(suggest_warp_names)
+            .runs(warp_cmd.del_warp)
         )
     )
 

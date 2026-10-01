@@ -21,6 +21,10 @@ DEFAULT_CONFIG = {
         "sethome": 1,
         "home": 1,
         "delhome": 1,
+        # 地标: 查看/传送为普通玩家权限, 创建/删除为管理级 (默认 helper)
+        "wp": 1,
+        "setwp": 2,
+        "delwp": 2,
         "back": 1,
         "tpm": 1,
         "tpa": 1,
@@ -31,6 +35,7 @@ DEFAULT_CONFIG = {
     # 各功能独立冷却时间 (秒), 0 表示无冷却
     "cd": {
         "home": 10,
+        "wp": 10,
         "back": 10,
         "tpm": 10,
         "tpa": 10,
@@ -39,6 +44,10 @@ DEFAULT_CONFIG = {
     "default_sethome_max": 10,
     # !!mhome list 每页显示的家数量
     "home_list_page_size": 10,
+    # 全服地标 (warp) 总数量上限, 所有玩家共用
+    "warp_max": 20,
+    # !!mwp list 每页显示的地标数量
+    "warp_list_page_size": 10,
     # tpa/tpahere 同意后延迟传送秒数, 0 表示立即
     "tp_delay": 3,
     # tpa/tpahere 请求超时秒数
@@ -118,7 +127,7 @@ DEATH_KEYWORDS = [
 # 插件元数据
 # ============================================================
 
-PLUGIN_METADATA = "1.0.0"
+PLUGIN_METADATA = "1.1.0"
 
 # 帮助信息: 每条 = (权限键, 文本模板)。权限键对应 perm 配置, 用于按玩家权限过滤显示。
 # 文本模板中的 {p} 会被替换为命令前缀 (!!m 或 !!)。
@@ -128,6 +137,11 @@ HELP_ENTRIES = [
     ("home", "§b{p}home list §7[页]  §f-- §6分页查看家列表"),
     ("home", "§b{p}home §e<名字>  §f-- §6传送到指定的家"),
     ("delhome", "§b{p}delhome §e<名字>  §f-- §6删除指定的家"),
+    ("wp", "§b{p}wp  §f-- §6列出全服地标"),
+    ("wp", "§b{p}wp list §7[页]  §f-- §6分页查看地标列表"),
+    ("wp", "§b{p}wp §e<名字>  §f-- §6传送到指定地标"),
+    ("setwp", "§b{p}setwp §e<名字>  §f-- §6在当前位置创建地标"),
+    ("delwp", "§b{p}delwp §e<名字>  §f-- §6删除指定地标"),
     ("back", "§b{p}back  §f-- §6精确传送回上次死亡地点"),
     ("back", "§b{p}back safe  §f-- §6安全传送到死亡地点附近 (死在岩浆/危险处时用)"),
     ("tpm", "§b{p}tpm §e<x> <y> <z> §7[维度]  §f-- §6传送到指定坐标"),
@@ -137,7 +151,7 @@ HELP_ENTRIES = [
     ("tpacancel", "§b{p}tpacancel  §f-- §6拒绝最近一条传送请求"),
     ("help", "§b{p}tpm help  §f-- §6显示此帮助信息"),
     ("reload", "§b{p}tpm reload  §f-- §6重新载入配置文件"),
-    ("reset", "§b{p}tpm reset  §f-- §6清空所有玩家数据"),
+    ("reset", "§b{p}tpm reset  §f-- §6清空所有玩家数据与地标"),
 ]
 
 # 帮助信息的固定头/尾 (与权限无关, 始终展示)

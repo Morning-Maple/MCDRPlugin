@@ -8,6 +8,7 @@ warp.py — 地标相关命令: 全服共享传送点的 创建 / 列表 / 传�
 流程类逻辑 (冷却 / back 点 / 传送执行 / 提示 / 审计日志) 统一由
 teleport.TeleportService 提供, 本模块只负责「定位目标点 + 传参」。
 """
+import re
 import time
 
 import mcdreforged as mcdr
@@ -23,16 +24,48 @@ from ..default_config import dimension_to_cn
 # 地标名保留字 (与子命令冲突), 小写比较
 RESERVED_WARP_NAMES = {"list"}
 
+# 注释最大长度 (字符); 超长直接拒绝, 避免撑爆列表渲染
+MAX_COMMENT_LEN = 32
+
+
+def _clean_comment(raw) -> str:
+    """清洗地标注释: 移除颜色码 / 换行, 并规整连续空白。
+
+    注释允许中文与空格 (命令中含空格时需用引号包裹)。颜色码与换行会污染
+    列表渲染 (甚至能伪造出额外行), 故一律剔除。
+    """
+    if not raw:
+        return ""
+    # 颜色码是 '§' + 一个格式字符 (如 §c), 需整体剔除; 末尾孤立的 '§' 单独兜底
+    text = re.sub(r"§.", "", str(raw)).replace("§", "")
+    text = text.replace("\n", " ").replace("\r", " ")
+    return " ".join(text.split())
+
+
+def _format_time(ts) -> str:
+    """把创建时间戳格式化为 'YYYY-MM-DD HH:MM' (本地时区); 缺失或非法时返回 '未知'
+
+    需捕获 OverflowError: 超出平台 time_t 范围的数值 (如超大数 / inf) 会抛出它,
+    且比 ValueError 更隐蔽 —— 漏掉会让整个列表线程中断, 后续地标与翻页栏都不再渲染。
+    """
+    if not ts:
+        return "未知"
+    try:
+        return time.strftime("%Y-%m-%d %H:%M", time.localtime(float(ts)))
+    except (TypeError, ValueError, OverflowError, OSError):
+        return "未知"
+
 
 # ============================================================
-# !!msetwp <warp_name>
+# !!msetwp <warp_name> [comment]
 # ============================================================
 
 @mcdr.new_thread("TpMaple-setwp")
 def set_warp(source: mcdr.CommandSource, context: dict):
-    """!!msetwp <名字>: 将玩家当前坐标创建为一个全服地标。
+    """!!msetwp <名字> [注释]: 将玩家当前坐标创建为一个全服地标。
 
-    名字仅允许英文字母和数字; 同名地标已存在时拒绝 (需先 delwp);
+    名字仅允许英文字母和数字; 注释可选 (允许中文, 含空格时需加引号,
+    长度上限见 MAX_COMMENT_LEN); 同名地标已存在时拒绝 (需先 delwp);
     新增时受全服总数量上限 (warp_max) 限制。
     """
     # 地标不按玩家存储, 无需 UUID
@@ -50,6 +83,12 @@ def set_warp(source: mcdr.CommandSource, context: dict):
     # list 是子命令关键词 (!!mwp list), 不能作为地标名, 否则会被命令解析遮蔽
     if warp_name.lower() in RESERVED_WARP_NAMES:
         ctx.reply(f"{TAG}§c“{warp_name}”是关键词，不可作为地标的名称")
+        return
+
+    # 注释: 可选参数
+    comment = _clean_comment(context.get("comment"))
+    if len(comment) > MAX_COMMENT_LEN:
+        ctx.reply(f"{TAG}§c注释过长, 最多 §6{MAX_COMMENT_LEN}§c 个字符")
         return
 
     warps = my_lib.get_warps()
@@ -81,17 +120,22 @@ def set_warp(source: mcdr.CommandSource, context: dict):
         "dimension": dimension,
         "creator": ctx.name,
         "created_at": time.time(),
+        "comment": comment,
     }
     my_lib.save_warp_data()
 
+    comment_desc = f" | 注释 {comment}" if comment else ""
     my_lib.audit(
         f"地标创建 [setwp] {ctx.name}: {warp_name} "
-        f"{dimension_to_cn(dimension)} ({pos.x:.1f}, {pos.y:.1f}, {pos.z:.1f})"
+        f"{dimension_to_cn(dimension)} ({pos.x:.1f}, {pos.y:.1f}, {pos.z:.1f}){comment_desc}"
     )
-    ctx.reply(
+    reply = (
         f"{TAG}§a地标 §e{warp_name} §a已创建 — §b{dimension_to_cn(dimension)} "
         f"§7({pos.x:.1f}, {pos.y:.1f}, {pos.z:.1f})"
     )
+    if comment:
+        reply += f" §7| §f{comment}"
+    ctx.reply(reply)
 
 
 # ============================================================
@@ -102,8 +146,9 @@ def set_warp(source: mcdr.CommandSource, context: dict):
 def list_warps(source: mcdr.CommandSource, context: dict = None):
     """!!mwp / !!mwp list [页]: 分页列出全服所有地标。
 
-    每条带可点击的 [传送] 按钮; 有 delwp 权限者额外显示 [删除] 按钮。
-    底部带可点击翻页。页码省略默认第 1 页; 越界时由 Paginator 自动夹取。
+    每条占两行: 第一行是 可点击按钮([传送], 有权限则含 [删除]) + 名字 + 维度 + 坐标,
+    第二行是 "-- 注释内容" + "@创建人" + 创建时间; 底部带可点击翻页。
+    页码省略默认第 1 页; 越界时由 Paginator 自动夹取。
     """
     warps = my_lib.get_warps()
     if not warps:
@@ -138,9 +183,17 @@ def list_warps(source: mcdr.CommandSource, context: dict = None):
             f" §e{name} §f— §b{dim_cn} "
             f"§7({info['x']:.1f}, {info['y']:.1f}, {info['z']:.1f})"
         )
+        # 第二行: -- 注释内容 / @创建人 / 创建时间。
+        # 用 \n 在同一条消息内换行 (而非再 reply 一次), 避免刷屏并保持每条可点击行为一体。
         creator = info.get("creator")
-        if creator:
-            parts.append(f" §8by {creator}")
+        # 有创建人时用 @名字; 旧数据缺该字段时退化为「未知」(不加 @, 避免出现 @未知 这种假句柄)
+        creator_desc = f"§7@§f{creator}" if creator else "§7未知"
+        parts.append("\n")
+        parts.append(
+            f"    §7-- §f{info.get('comment') or '无'}"
+            f"  §8| {creator_desc}"
+            f"  §8| §7{_format_time(info.get('created_at'))}"
+        )
         source.reply(RTextList(*parts))
 
     # 翻页控件 (仅在多于一页时显示)

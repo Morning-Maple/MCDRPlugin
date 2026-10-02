@@ -807,7 +807,7 @@ def register(server: mcdr.PluginServerInterface):
         )
     )
 
-    # --- !!msetwp <name> ---
+    # --- !!msetwp <name> [comment] ---
     server.register_command(
         Literal(cmd("setwp"))
         .requires(*_perm("setwp"))
@@ -815,6 +815,11 @@ def register(server: mcdr.PluginServerInterface):
             QuotableText("warp_name")
             .suggests(suggest_warp_names)
             .runs(warp_cmd.set_warp)
+            .then(
+                # 注释可选; 含空格时需用引号包裹 (QuotableText 支持带空格文本)
+                QuotableText("comment")
+                .runs(warp_cmd.set_warp)
+            )
         )
     )
 

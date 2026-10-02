@@ -22,8 +22,10 @@ from ..my_lib import TAG
 from ..pagination import Paginator
 from ..default_config import dimension_to_cn
 
-# 地标名保留字 (与子命令冲突), 小写比较
-RESERVED_WARP_NAMES = {"list"}
+# 地标名保留字 (与 !!mwp 的子命令冲突), 小写比较。
+# 保留字依据: MCDR 解析时字面量子命令优先于参数, 因此这些名字一旦成为地标名,
+# 就无法通过 !!mwp <名字> 到达 (会被解析成子命令), 故在创建时直接拒绝。
+RESERVED_WARP_NAMES = {"list", "help", "h", "reload", "reset"}
 
 # 注释最大长度 (字符); 超长直接拒绝, 避免撑爆列表渲染
 MAX_COMMENT_LEN = 32
@@ -81,7 +83,8 @@ def set_warp(source: mcdr.CommandSource, context: dict):
         ctx.reply(f"{TAG}§c名称只能包含英文字母和数字")
         return
 
-    # list 是子命令关键词 (!!mwp list), 不能作为地标名, 否则会被命令解析遮蔽
+    # list / help / h / reload / reset 是 !!mwp 的子命令关键词, 不能作为地标名,
+    # 否则会被命令解析遮蔽 (字面量子命令优先于参数)
     if warp_name.lower() in RESERVED_WARP_NAMES:
         ctx.reply(f"{TAG}§c“{warp_name}”是关键词，不可作为地标的名称")
         return

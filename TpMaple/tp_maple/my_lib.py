@@ -241,14 +241,17 @@ def cmd(name: str) -> str:
     return prefix + name
 
 
-def get_help_msg(source: mcdr.CommandSource = None) -> str:
-    """生成帮助信息; 传入 source 时按其权限过滤掉无权使用的命令行"""
+def get_help_msg(source: mcdr.CommandSource = None, group: str = None) -> str:
+    """生成帮助信息; 传入 source 时按其权限过滤掉无权使用的命令行。
+
+    :param group: 命令树分组 ('tp' / 'wp'); 为 None 时显示全部分组
+    """
     prefix = "!!m" if get_use_maple_prefix() else "!!"
     perm_filter = None
     if source is not None:
         # 仅展示该命令源权限足够的条目
         perm_filter = lambda perm_key: source.has_permission(get_perm(perm_key))
-    return default_config.build_help_msg(prefix, perm_filter)
+    return default_config.build_help_msg(prefix, perm_filter, group)
 
 
 # 权限不足时统一提示文案
@@ -601,8 +604,14 @@ def _send_death_hint(player: str):
 # ============================================================
 
 def display_help(source: mcdr.CommandSource):
-    """逐行回复帮助信息 (按当前前缀生成, 并按命令源权限过滤)"""
-    for line in get_help_msg(source).splitlines():
+    """!!mtpm [help] — 逐行回复 tpm 命令树的帮助 (按当前前缀与命令源权限过滤)"""
+    for line in get_help_msg(source, group="tp").splitlines():
+        source.reply(line)
+
+
+def display_warp_help(source: mcdr.CommandSource):
+    """!!mwp help — 逐行回复地标命令树的帮助 (与 tpm 帮助相互独立)"""
+    for line in get_help_msg(source, group="wp").splitlines():
         source.reply(line)
 
 
@@ -647,19 +656,34 @@ def reset_confirm(source: mcdr.CommandSource):
     source.reply("§b[TpMaple] §a已清空所有玩家数据与地标, 插件恢复为初始状态")
 
 
-def reset_prompt(source: mcdr.CommandSource):
-    """!!tpm reset — 二次确认提示"""
-    base = cmd("tpm")
+def _reset_prompt_impl(source: mcdr.CommandSource, base_cmd: str):
+    """reset 二次确认提示的共用实现。
+
+    注意: 该函数**不能**直接注册为命令回调并靠默认参数接收 base_cmd ——
+    MCDR 的 ScheduledCallback 会按回调签名参数个数截取实参 (恒为 source, context),
+    若回调声明了第二个参数, 收到的会是 context 字典而非预期值。
+    因此这里做成私有实现, 由两个只收 source 的回调分别传入各自的命令前缀。
+    """
     click_action = get_click_action()
     confirm = RText("§c[点击确认清空]", RColor.red)
-    confirm.c(click_action, "{} reset confirm".format(base))
+    confirm.c(click_action, "{} reset confirm".format(base_cmd))
     confirm.h("§c确认清空所有玩家数据与全服地标")
     source.reply(RTextList(
         "§b[TpMaple] ",
         "§c即将清空所有玩家数据与全服地标 (家/地标/back点/冷却), 此操作不可撤销! ",
         confirm,
     ))
-    source.reply("§b[TpMaple] §7也可输入 §a{} reset confirm §7确认".format(base))
+    source.reply("§b[TpMaple] §7也可输入 §a{} reset confirm §7确认".format(base_cmd))
+
+
+def reset_prompt(source: mcdr.CommandSource):
+    """!!mtpm reset — 二次确认提示 (tpm 命令树)"""
+    _reset_prompt_impl(source, cmd("tpm"))
+
+
+def warp_reset_prompt(source: mcdr.CommandSource):
+    """!!mwp reset — 二次确认提示 (wp 命令树; 与 tpm 清空范围相同)"""
+    _reset_prompt_impl(source, cmd("wp"))
 
 
 # ============================================================
@@ -787,7 +811,8 @@ def register(server: mcdr.PluginServerInterface):
         )
     )
 
-    # --- !!mwp [list [page] | <name>] ---
+    # --- !!mwp [list [page] | help | reload | reset | <name>] ---
+    # 地标有自己独立的命令树与帮助 (!!mwp help), 不依赖 !!mtpm help
     server.register_command(
         Literal(cmd("wp"))
         .requires(*_perm("wp"))
@@ -798,6 +823,28 @@ def register(server: mcdr.PluginServerInterface):
             .runs(warp_cmd.list_warps)
             .then(
                 Integer("page").runs(warp_cmd.list_warps)
+            )
+        )
+        .then(
+            # !!mwp help / !!mwp h: 显示地标帮助 (仅地标相关命令)
+            Literal(["help", "h"])
+            .requires(*_perm("help"))
+            .runs(display_warp_help)
+        )
+        .then(
+            # !!mwp reload: 与 !!mtpm reload 同一套逻辑
+            Literal("reload")
+            .requires(*_perm("reload"))
+            .runs(reload_cmd)
+        )
+        .then(
+            # !!mwp reset [confirm]: 与 !!mtpm reset 同一套逻辑 (清空范围相同)
+            Literal("reset")
+            .requires(*_perm("reset"))
+            .runs(warp_reset_prompt)
+            .then(
+                Literal("confirm")
+                .runs(reset_confirm)
             )
         )
         .then(

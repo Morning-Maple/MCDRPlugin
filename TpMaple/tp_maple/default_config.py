@@ -133,48 +133,62 @@ DEATH_KEYWORDS = [
 # 插件元数据
 # ============================================================
 
-PLUGIN_METADATA = "1.2.2"
+PLUGIN_METADATA = "1.2.3"
 
-# 帮助信息: 每条 = (权限键, 文本模板)。权限键对应 perm 配置, 用于按玩家权限过滤显示。
+# 帮助信息按命令树分组:
+#   "tp" -> !!mtpm 树 (家 / back / 坐标传送 / tpa)
+#   "wp" -> !!mwp  树 (地标)
+# 每条 = (分组, 权限键, 文本模板)。权限键对应 perm 配置, 用于按玩家权限过滤显示。
 # 文本模板中的 {p} 会被替换为命令前缀 (!!m 或 !!)。
 HELP_ENTRIES = [
-    ("sethome", "§b{p}sethome §e<名字>  §f-- §6设置家"),
-    ("home", "§b{p}home  §f-- §6列出所有家"),
-    ("home", "§b{p}home list §7[页]  §f-- §6分页查看家列表"),
-    ("home", "§b{p}home §e<名字>  §f-- §6传送到指定的家"),
-    ("delhome", "§b{p}delhome §e<名字>  §f-- §6删除指定的家"),
-    ("wp", "§b{p}wp  §f-- §6列出全服地标"),
-    ("wp", "§b{p}wp list §7[页]  §f-- §6分页查看地标列表"),
-    ("wp", "§b{p}wp §e<名字>  §f-- §6传送到指定地标"),
-    ("setwp", "§b{p}setwp §e<名字> §7[注释]  §f-- §6在当前位置创建地标"),
-    ("delwp", "§b{p}delwp §e<名字>  §f-- §6删除指定地标"),
-    ("back", "§b{p}back  §f-- §6精确传送回上次死亡地点"),
-    ("back", "§b{p}back safe  §f-- §6安全传送到死亡地点附近 (死在岩浆/危险处时用)"),
-    ("tpm", "§b{p}tpm §e<x> <y> <z> §7[维度]  §f-- §6传送到指定坐标"),
-    ("tpa", "§b{p}tpa §e<玩家名>  §f-- §6请求传送到目标玩家"),
-    ("tpahere", "§b{p}tpahere §e<玩家名>  §f-- §6请求目标玩家传送到你身边"),
-    ("tpaccept", "§b{p}tpaccept  §f-- §6同意最近一条传送请求"),
-    ("tpacancel", "§b{p}tpacancel  §f-- §6拒绝最近一条传送请求"),
-    ("help", "§b{p}tpm help  §f-- §6显示此帮助信息"),
-    ("reload", "§b{p}tpm reload  §f-- §6重新载入配置文件"),
-    ("reset", "§b{p}tpm reset  §f-- §6清空所有玩家数据与地标"),
+    ("tp", "sethome", "§b{p}sethome §e<名字>  §f-- §6设置家"),
+    ("tp", "home", "§b{p}home  §f-- §6列出所有家"),
+    ("tp", "home", "§b{p}home list §7[页]  §f-- §6分页查看家列表"),
+    ("tp", "home", "§b{p}home §e<名字>  §f-- §6传送到指定的家"),
+    ("tp", "delhome", "§b{p}delhome §e<名字>  §f-- §6删除指定的家"),
+    ("tp", "back", "§b{p}back  §f-- §6精确传送回上次死亡地点"),
+    ("tp", "back", "§b{p}back safe  §f-- §6安全传送到死亡地点附近 (死在岩浆/危险处时用)"),
+    ("tp", "tpm", "§b{p}tpm §e<x> <y> <z> §7[维度]  §f-- §6传送到指定坐标"),
+    ("tp", "tpa", "§b{p}tpa §e<玩家名>  §f-- §6请求传送到目标玩家"),
+    ("tp", "tpahere", "§b{p}tpahere §e<玩家名>  §f-- §6请求目标玩家传送到你身边"),
+    ("tp", "tpaccept", "§b{p}tpaccept  §f-- §6同意最近一条传送请求"),
+    ("tp", "tpacancel", "§b{p}tpacancel  §f-- §6拒绝最近一条传送请求"),
+    ("tp", "help", "§b{p}tpm help  §f-- §6显示此帮助信息"),
+    ("tp", "reload", "§b{p}tpm reload  §f-- §6重新载入配置文件"),
+    ("tp", "reset", "§b{p}tpm reset  §f-- §6清空所有玩家数据与地标"),
+    # --- 地标树 (!!mwp) ---
+    ("wp", "wp", "§b{p}wp  §f-- §6列出全服地标"),
+    ("wp", "wp", "§b{p}wp list §7[页]  §f-- §6分页查看地标列表"),
+    ("wp", "wp", "§b{p}wp §e<名字>  §f-- §6传送到指定地标"),
+    ("wp", "setwp", "§b{p}setwp §e<名字> §7[注释]  §f-- §6在当前位置创建地标"),
+    ("wp", "delwp", "§b{p}delwp §e<名字>  §f-- §6删除指定地标"),
+    ("wp", "help", "§b{p}wp help §7[h]  §f-- §6显示此地标帮助信息"),
+    ("wp", "reload", "§b{p}wp reload  §f-- §6重新载入配置文件"),
+    ("wp", "reset", "§b{p}wp reset  §f-- §6清空所有玩家数据与地标"),
 ]
 
-# 帮助信息的固定头/尾 (与权限无关, 始终展示)
-HELP_HEADER = "{:=^50}".format(" §b[TpMaple] 帮助信息 §r")
+# 帮助信息的固定头/尾 (与权限无关, 始终展示); 按命令树分组
+HELP_HEADERS = {
+    "tp": "{:=^50}".format(" §b[TpMaple] 帮助信息 §r"),
+    "wp": "{:=^50}".format(" §b[TpMaple] 地标帮助信息 §r"),
+}
 HELP_FOOTER = "{:=^50}".format(" §b[TpMaple] Version: {} §r".format(PLUGIN_METADATA))
 HELP_SIGN = "§lBy：§6§lMorning_Maple"
 
 
-def build_help_msg(prefix: str = "!!m", perm_filter=None) -> str:
-    """根据命令前缀生成帮助信息, 可按权限过滤条目。
+def build_help_msg(prefix: str = "!!m", perm_filter=None, group: str = None) -> str:
+    """根据命令前缀生成帮助信息, 可按权限与命令树分组过滤条目。
 
     :param prefix: 命令前缀, 如 '!!m' (启用 Maple 前缀) 或 '!!' (默认前缀)
     :param perm_filter: 可选回调 (权限键) -> bool, 返回 False 的条目不显示;
                         为 None 时显示全部条目
+    :param group: 可选分组 ('tp' / 'wp'), 只显示该命令树的条目;
+                  为 None 时显示全部分组
     """
-    lines = [HELP_HEADER]
-    for perm_key, template in HELP_ENTRIES:
+    lines = [HELP_HEADERS.get(group, HELP_HEADERS["tp"])]
+    for entry_group, perm_key, template in HELP_ENTRIES:
+        if group is not None and entry_group != group:
+            continue
         if perm_filter is None or perm_filter(perm_key):
             lines.append(template.format(p=prefix))
     lines.append(HELP_FOOTER)

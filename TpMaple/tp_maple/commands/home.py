@@ -9,6 +9,7 @@ from mcdreforged.api.rtext import RText, RTextList, RColor
 
 from .. import my_lib
 from .. import teleport as tp_core
+from .. import utils
 from ..context import resolve_player
 from ..my_lib import TAG
 from ..pagination import Paginator
@@ -86,7 +87,8 @@ def list_homes(source: mcdr.CommandSource, context: dict = None):
     """!!mhome / !!mhome list [页]: 分页列出玩家所有的家。
 
     每条带可点击的 [传送] / [删除] 按钮, 底部带可点击翻页。
-    页码省略默认第 1 页; 越界时由 Paginator 自动夹取到 [1, 最大页]。
+    家按名字以 Windows 资源管理器风格 (自然排序) 排序, 与 !!mwp 一致;
+    页码省略默认第 1 页, 越界时由 Paginator 自动夹取到 [1, 最大页]。
     """
     ctx = resolve_player(source)
     if ctx is None:
@@ -97,8 +99,11 @@ def list_homes(source: mcdr.CommandSource, context: dict = None):
         ctx.reply(f"{TAG}§7你还没有设置任何家")
         return
 
+    # 按名字自然排序 (Windows 资源管理器风格), 排序先于分页以保证每页内容稳定
+    items = sorted(homes.items(), key=lambda kv: utils.natural_sort_key(kv[0]))
+
     pg = Paginator(
-        list(homes.items()),
+        items,
         my_lib.get_home_list_page_size(),
         (context or {}).get("page", 1),
     )

@@ -16,6 +16,7 @@ from mcdreforged.api.rtext import RText, RTextList, RColor
 
 from .. import my_lib
 from .. import teleport as tp_core
+from .. import utils
 from ..context import resolve_player
 from ..my_lib import TAG
 from ..pagination import Paginator
@@ -148,15 +149,19 @@ def list_warps(source: mcdr.CommandSource, context: dict = None):
 
     每条占两行: 第一行是 可点击按钮([传送], 有权限则含 [删除]) + 名字 + 维度 + 坐标,
     第二行是 "-- 注释内容" + "@创建人" + 创建时间; 底部带可点击翻页。
-    页码省略默认第 1 页; 越界时由 Paginator 自动夹取。
+    地标按名字以 Windows 资源管理器风格 (自然排序: 数字按数值、数字优先、
+    忽略大小写) 排序; 页码省略默认第 1 页, 越界时由 Paginator 自动夹取。
     """
     warps = my_lib.get_warps()
     if not warps:
         source.reply(f"{TAG}§7还没有任何地标")
         return
 
+    # 按名字自然排序 (Windows 资源管理器风格), 排序先于分页以保证每页内容稳定
+    items = sorted(warps.items(), key=lambda kv: utils.natural_sort_key(kv[0]))
+
     pg = Paginator(
-        list(warps.items()),
+        items,
         my_lib.get_warp_list_page_size(),
         (context or {}).get("page", 1),
     )

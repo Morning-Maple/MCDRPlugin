@@ -15,6 +15,7 @@
 - **库存模型**：`stock` 抓取一次，存成快照。抓完就**可以不管原玩家了** —— 哪怕他删档、改名、转服，库存依然能分发
 - **持久化**：库存写在插件数据目录的 `stock.json`，重启 / 重载都不丢
 - **单份库存**：再次 `stock` 就覆盖，指令简单直观
+- **自助同步**：普通玩家（权限 1）可用 `!!madv self` 给自己增量补齐，由服务端开关控制，管理员可游戏内热更新
 - **只增不减**：分发给玩家时只授予其缺失的成就，**从不撤销**对方自己额外获得的成就
 - **只处理在线玩家**：分发通过服务端命令完成，即时生效、服务端权威
 - **自动排除配方类**：`minecraft:recipes/...` 默认不进库存，避免分发时灌入数百条把配方书塞爆
@@ -49,18 +50,43 @@ python pack.py
 | 命令 | 说明 | 默认权限 |
 |---|---|---|
 | `!!madv` / `!!madv help` | 显示帮助（按权限过滤） | 0 |
-| `!!madv stock` | 查看当前库存（概要 + 第 1 页明细） | 1 |
-| `!!madv stock list [页]` | 分页查看库存里的成就 id | 1 |
-| `!!madv stock <玩家>` | **抓取**该玩家的成就作为库存（覆盖旧的） | 2 |
-| `!!madv give` | **分发**库存给全服在线玩家 | 2 |
-| `!!madv give <玩家>` | 分发库存给指定玩家 | 2 |
-| `!!madv give <玩家> <成就id>` | 只分发单个成就（id 可 Tab 补全） | 2 |
+| `!!madv self` | **给自己**增量补齐库存中的成就（已有的跳过） | **1** |
+| `!!madv stock` | 查看当前库存（概要 + 第 1 页明细） | 3 |
+| `!!madv stock list [页]` | 分页查看库存里的成就 id | 3 |
+| `!!madv stock <玩家>` | **抓取**该玩家的成就作为库存（覆盖旧的） | 3 |
+| `!!madv give` | **分发**库存给全服在线玩家 | 3 |
+| `!!madv give <玩家>` | 分发库存给指定玩家 | 3 |
+| `!!madv give <玩家> <成就id>` | 只分发单个成就（id 可 Tab 补全） | 3 |
+| `!!madv switch` | 查看自助同步开关状态 | 3 |
+| `!!madv switch on` / `off` | **热更新**自助同步开关 | 3 |
 | `!!madv reload` | 重载配置 | 3 |
+
+> **权限走 MCDR 原生权限体系**（`0`=guest … `4`=owner）。管理类命令（`stock` / `give` / `switch` / `reload`）默认需要 **3（admin）**；只有 `!!madv self` 是给普通玩家的 1 级命令，且**还受服务器开关约束**（见下）。
+
+### 自助同步（`!!madv self`）
+
+给普通玩家的便利功能：玩家自己触发，把库存里有、自己还没有的成就补上。
+
+- **默认关闭**：配置项 `allow_self_sync` 默认为 `false`，需要在服务端开启
+- **热更新**：权限 3 的玩家可在游戏内直接开/关，无需重载插件
+
+```bash
+!!madv switch          # 查看当前是否开启
+!!madv switch on       # 开启（立即生效并写回配置文件）
+!!madv switch off      # 关闭
+```
+
+开启后普通玩家用：
+
+```bash
+!!madv self            # 给自己补齐缺失的成就，已有的自动跳过
+```
+
 
 ### 典型用法
 
 ```bash
-# 1. 把成就刷满的那个玩家的成就抓成库存
+# 1. 把成就刷满的那个玩家的成就抓成库存（需要 admin）
 !!madv stock Steve
 
 # 2. 看看库存里有什么
@@ -75,6 +101,12 @@ python pack.py
 
 # 5. 只补一个成就
 !!madv give Alex minecraft:story/mine_diamond
+
+# 6. 开放自助同步，让玩家自己补（管理员）
+!!madv switch on
+
+# 7. 玩家自己触发（权限 1 即可）
+!!madv self
 ```
 
 效果示例：
@@ -100,17 +132,32 @@ python pack.py
 | `exclude_prefixes` | `["minecraft:recipes/"]` | 抓取时不进库存的成就 id 前缀列表 |
 | `grant_interval` | `0.02` | 逐条下发命令的间隔秒数，`0` 表示不限速 |
 | `list_page_size` | `10` | `!!madv stock list` 每页条数 |
+| `allow_self_sync` | `false` | 是否允许普通玩家用 `!!madv self` 自助补成就。可用 `!!madv switch on\|off` 在游戏内热更新（会写回本文件） |
 | `perm` | 见下 | 各命令所需最低权限等级（0=guest … 4=owner） |
 
 `perm` 默认：
 
 ```json
 {
-  "help": 0, "stock": 1, "grab": 2, "give": 2, "reload": 3
+  "help": 0,
+  "stock": 3,
+  "grab": 3,
+  "give": 3,
+  "self": 1,
+  "switch": 3,
+  "reload": 3
 }
 ```
 
-> `stock` 控制「查看库存」，`grab` 控制「抓取库存」—— 因此普通玩家能看库存，但只有 helper 及以上能抓取。
+> `stock` 控制「查看库存」，`grab` 控制「抓取库存」—— 两者默认都是 3。
+> `self` 是唯一给普通玩家（1 级）的命令，但仍需 `allow_self_sync` 开启后才真正可用。
+> `switch` 控制开关的热更新，默认 3（admin）。
+
+> ⚠️ **升级注意**：配置加载只会**补全缺失的键**，**不会覆盖你已设置的值**。
+> 因此如果你曾装过本插件的早期版本，升级后 `perm` 里已有的项（如 `stock` / `give`）
+> 会**保留旧值**，不会自动变成新的默认 3。
+> 若需要采用新默认值，请删除 `config/adv_maple/AdvMaple.json` 让插件重新生成，
+> 或手动把 `perm` 里各项改成你想要的等级。
 
 > **`advancements_dir` 是最容易配错的一项**。它必须指向服务端存档里的 `advancements` 文件夹。
 > 若你的服务端 `level-name` 不是 `world`（例如 `server.properties` 里写的是 `level-name=myworld`），
@@ -182,6 +229,7 @@ config/adv_maple/
 ## 已知限制
 
 - **只处理在线玩家**：离线玩家无法用命令写入（直接改文件会被内存覆盖），因此分发时会跳过并提示。
+- **`!!madv self` 默认关闭**：需管理员用 `!!madv switch on` 开启；关闭时该命令会直接提示并拒绝。
 - **单份库存**：再次 `stock` 会覆盖旧库存（按设计，保持最简单）。
 - **成就只显示 id**：形如 `minecraft:story/mine_diamond`，不显示中文标题。
 - **玩家名 `list` 无法抓取**：与 `!!madv stock list` 冲突（解析时字面量子命令优先），会明确拒绝。
@@ -200,7 +248,8 @@ adv_maple/
   commands/
     __init__.py
     stock.py         # !!madv stock [list [页]] / !!madv stock <玩家>
-    give.py          # !!madv give [玩家 [成就id]]
+    give.py          # !!madv give [玩家 [成就id]] / !!madv self
+    switch.py        # !!madv switch [on|off]
 ```
 
 ## 许可证

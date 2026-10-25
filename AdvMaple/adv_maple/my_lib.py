@@ -161,6 +161,25 @@ def get_list_page_size() -> int:
     return max(1, value)
 
 
+def is_self_sync_allowed() -> bool:
+    """自助同步开关 (allow_self_sync) 是否开启"""
+    return bool(config.get("allow_self_sync", False))
+
+
+def set_self_sync_allowed(enabled: bool) -> bool:
+    """热更新自助同步开关并写回配置文件。
+
+    :return: 是否成功写入文件 (内存状态总是会被更新)
+    """
+    config["allow_self_sync"] = bool(enabled)
+    try:
+        plugin_server.save_config_simple(config, CONFIG_FILE_NAME)
+        return True
+    except Exception as e:
+        _log(f"[AdvMaple] 保存开关失败: {e}")
+        return False
+
+
 # ============================================================
 # 帮助 / 重载
 # ============================================================
@@ -349,6 +368,7 @@ def register(server: mcdr.PluginServerInterface):
     from . import advancement
     from .commands import stock as stock_cmd
     from .commands import give as give_cmd
+    from .commands import switch as switch_cmd
 
     # 载入持久化的库存
     advancement.load_stock()
@@ -409,6 +429,24 @@ def register(server: mcdr.PluginServerInterface):
                     .suggests(suggest_stock_ids)
                     .runs(give_cmd.give_single)
                 )
+            )
+        )
+        .then(
+            # !!madv self: 给自己增量补齐 (权限 1, 还受 allow_self_sync 开关约束)
+            Literal("self")
+            .requires(*_perm("self"))
+            .runs(give_cmd.self_sync)
+        )
+        .then(
+            # !!madv switch [on|off]: 查看/热更新自助同步开关 (权限 3)
+            Literal("switch")
+            .requires(*_perm("switch"))
+            .runs(switch_cmd.show_switch)
+            .then(
+                Literal("on").runs(switch_cmd.turn_on)
+            )
+            .then(
+                Literal("off").runs(switch_cmd.turn_off)
             )
         )
     )

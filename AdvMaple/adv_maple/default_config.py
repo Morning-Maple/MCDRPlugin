@@ -37,12 +37,20 @@ DEFAULT_CONFIG = {
     # !!madv stock list 每页条数 (至少 1)
     "list_page_size": 10,
 
+    # ---- 自助同步 (!!madv self) ----
+    # 是否允许普通玩家用 !!madv self 给自己增量补齐成就 (已有的跳过)。
+    # 默认关闭: 这是「玩家给自己补成就」的便利功能, 由管理员决定是否开放。
+    # 可被权限 3 的玩家用 !!madv switch on|off 在游戏内热更新 (会写回本文件)。
+    "allow_self_sync": False,
+
     # 命令权限等级 (0=guest, 1=user, 2=helper, 3=admin, 4=owner)
     "perm": {
         "help": 0,
-        "stock": 1,     # 查看库存
-        "grab": 2,      # 抓取库存 (写操作)
-        "give": 2,      # 分发库存 (写操作)
+        "stock": 3,     # 查看库存
+        "grab": 3,      # 抓取库存 (写操作)
+        "give": 3,      # 分发库存 (写操作)
+        "self": 1,      # 自助增量同步 (还受 allow_self_sync 开关约束)
+        "switch": 3,    # 查看/热更新 allow_self_sync 开关
         "reload": 3,
     },
 }
@@ -62,6 +70,9 @@ HELP_ENTRIES = [
     ("give", "§b{p} give  §f-- §6把库存分发给§a全服在线玩家"),
     ("give", "§b{p} give §e<玩家>  §f-- §6把库存分发给指定玩家"),
     ("give", "§b{p} give §e<玩家> <成就id>  §f-- §6只分发单个成就"),
+    ("self", "§b{p} self  §f-- §6给自己增量补齐成就 (已有的跳过)"),
+    ("switch", "§b{p} switch §f-- §6查看自助同步开关状态"),
+    ("switch", "§b{p} switch §eon§f|§eoff  §f-- §6热更新自助同步开关"),
     ("help", "§b{p} help  §f-- §6显示此帮助信息"),
     ("reload", "§b{p} reload  §f-- §6重新载入配置文件"),
 ]

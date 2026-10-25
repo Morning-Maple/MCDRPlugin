@@ -158,6 +158,34 @@ def give_one(source: mcdr.CommandSource, context: dict):
 
 
 # ============================================================
+# !!madv self   (自助增量同步: 玩家给自己补齐)
+# ============================================================
+
+@mcdr.new_thread("AdvMaple-self")
+def self_sync(source: mcdr.CommandSource):
+    """!!madv self — 玩家给自己增量补齐库存里的成就 (已有的跳过)。
+
+    需要服务器开启 allow_self_sync 开关 (权限 3 可用 !!madv switch on 热更新)。
+    """
+    if not getattr(source, "is_player", False):
+        source.reply(f"{TAG}§c该命令只能由玩家执行 (控制台请用 give <玩家>)")
+        return
+
+    if not my_lib.is_self_sync_allowed():
+        source.reply(
+            f"{TAG}§c自助同步当前未开放"
+            f"\n§7  请管理员执行 §f{my_lib.cmd('adv')} switch on §7开启"
+        )
+        return
+
+    stock = _get_stock_or_reply(source)
+    if stock is None:
+        return
+
+    _give_to_targets(source, stock, [source.player])
+
+
+# ============================================================
 # !!madv give <玩家> <成就id>
 # ============================================================
 

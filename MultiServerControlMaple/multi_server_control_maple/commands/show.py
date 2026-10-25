@@ -102,6 +102,12 @@ def show_one(source: mcdr.CommandSource, context: dict):
         names = "、".join(status.players) if status.players else "§7（服务器未提供名单）"
         source.reply("在线玩家：§a{}".format(names))
 
+    # 白名单提示: 同步时这些路径会保留子服自己的版本
+    if can_sync:
+        whitelist = cfg.get("sync_whitelist")
+        if isinstance(whitelist, list) and whitelist:
+            source.reply("§7同步白名单：§f{} §7项（保留子服自有版本）".format(len(whitelist)))
+
     # 操作按钮: 同步 / 停止或开启 / 重启 (可点击; 点击后各命令会各自弹二次确认)
     action = my_lib.get_click_action()
     buttons = []

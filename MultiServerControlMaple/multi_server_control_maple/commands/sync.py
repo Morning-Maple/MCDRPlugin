@@ -9,10 +9,13 @@ sync.py — !!mscm sync <名字> [confirm]
 - 同步前对主服 save-off + save-all flush, 完成后 save-on (放 finally, 保证恢复);
 - 镜像式: 先清空目标世界再拷, 使子服与主服一致 (会删目标多余旧文件);
 - session.lock 始终强制忽略, 叠加配置的 sync_ignore_files (正则);
+- sync_whitelist (glob) 命中路径采用**子服自己的版本**: 镜像前先从旧目标里
+  备份捞回、并从源拷贝中跳过, 实现「子服自有配置不被覆盖」;
 - 破坏性操作, 需二次确认 ([确认]/[取消] 按钮或命令式 ... confirm / ... cancel)。
 
 仅同步文件, 整个流程在 @new_thread 中执行, 避免阻塞 MCDR 主线程。
 """
+import fnmatch
 import os
 import re
 import shutil
@@ -81,11 +84,124 @@ def _build_ignore_matcher(patterns):
     return match
 
 
-def _mirror_copy(source_root, target_root, matcher):
+# ============================================================
+# 白名单匹配 (子服自有文件优先)
+# ============================================================
+
+# 永远不参与同步的文件名 (运行中的锁文件, 拷过去会坏档)
+ALWAYS_IGNORED_NAMES = {"session.lock"}
+
+
+def _normalize_rel(path: str) -> str:
+    """相对路径归一化: 反斜杠转斜杠, 去掉开头的 ./ 与 /"""
+    rel = str(path or "").replace("\\", "/")
+    while rel.startswith("./"):
+        rel = rel[2:]
+    return rel.lstrip("/")
+
+
+def _build_whitelist_matcher(patterns):
+    """根据 sync_whitelist 构造匹配函数 (glob 语法)。
+
+    - 结尾带 '/' 的条目 -> 目录条目, 命中该目录及其下全部文件;
+    - 其余条目 -> glob (fnmatch), 对「相对 sync_source 的相对路径」做匹配;
+      若条目里不含 '/', 则额外按文件名匹配 —— 这样写 'carpet.conf' 也能命中
+      'config/carpet.conf', 更符合直觉;
+    - 大小写不敏感 (与 Windows 文件系统语义一致);
+    - session.lock 永不命中 (白名单也不能把它复活)。
+
+    返回: match(rel_path: str) -> bool; 没有任何有效条目时返回 **None**
+    (调用方据此跳过多余的遍历开销)。
+    """
+    # 容错: 用户可能只写了一个字符串而非列表。若直接迭代字符串会拆成单字符,
+    # 白名单将静默失效 (还会白白多遍历一遍备份目录), 故先归一化为列表。
+    if isinstance(patterns, str):
+        patterns = [patterns]
+
+    dir_prefixes = []      # 归一化后的小写目录前缀
+    globs = []             # (小写 pattern, 是否同时匹配文件名)
+
+    for raw in (patterns or []):
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        pattern = _normalize_rel(raw.strip())
+        if not pattern:
+            continue
+        if pattern.endswith("/"):
+            prefix = pattern.rstrip("/").lower()
+            if prefix:
+                dir_prefixes.append(prefix)
+            continue
+        globs.append((pattern.lower(), "/" not in pattern))
+
+    if not dir_prefixes and not globs:
+        return None
+
+    def match(rel_path: str) -> bool:
+        rel = _normalize_rel(rel_path).lower()
+        base = rel.rsplit("/", 1)[-1]
+        if base in ALWAYS_IGNORED_NAMES:
+            return False
+        for prefix in dir_prefixes:
+            if rel == prefix or rel.startswith(prefix + "/"):
+                return True
+        for pattern, by_basename in globs:
+            if fnmatch.fnmatchcase(rel, pattern):
+                return True
+            if by_basename and fnmatch.fnmatchcase(base, pattern):
+                return True
+        return False
+
+    return match
+
+
+def _restore_whitelisted(bak_root, target_root, whitelist):
+    """把旧目标 (已改名为 .mscm_bak) 中命中白名单的文件拷回新目标。
+
+    镜像同步会先把目标整体挪走、再据源重建, 所以「保留子服自己的版本」
+    必须在这一步从备份里捞回来 —— 光靠「跳过不拷」是拿不回旧文件的。
+
+    恢复失败**必须抛出**: 白名单路径既不会被源覆盖, 也不在源拷贝范围内,
+    它在备份里的那份就是唯一副本。若在这里"记日志继续", 后续会照常删掉
+    .mscm_bak, 导致子服这份配置永久丢失, 而且对外还报同步成功。
+    抛异常会让 _mirror_copy 走回滚 (把备份改回原样), 保证不丢数据。
+
+    :return: 成功拷回的文件数
+    :raises RuntimeError: 任一白名单文件恢复失败 (已附带具体路径与原错误)
+    """
+    restored = 0
+    for dirpath, _dirnames, filenames in os.walk(bak_root):
+        for fn in filenames:
+            full = os.path.join(dirpath, fn)
+            rel = os.path.relpath(full, bak_root).replace("\\", "/")
+            if not whitelist(rel):
+                continue
+            target_path = os.path.join(target_root, os.path.relpath(full, bak_root))
+            try:
+                os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                shutil.copy2(full, target_path)
+                restored += 1
+            except OSError as e:
+                my_lib._log("[MSC] 白名单文件恢复失败 {}: {}".format(rel, e))
+                raise RuntimeError(
+                    "白名单文件恢复失败 {} ({})，已中止同步并回滚".format(rel, e)
+                ) from e
+    return restored
+
+
+def _mirror_copy(source_root, target_root, matcher, whitelist=None):
     """镜像复制 (可回滚): 把现有目标改名为备份, 拷贝完成后再删备份;
     中途出错则删掉半成品、把备份改回原样, 保证子服存档不被破坏。
 
-    返回复制的文件数。
+    :param matcher: 忽略匹配 (sync_ignore_files), 命中则不从源拷贝
+    :param whitelist: 白名单匹配 (sync_whitelist)。命中路径**采用目标自己的版本**:
+        1) 先把旧目标里这些文件从备份捞回新目标;
+        2) 再从源拷贝时跳过它们 (源的版本不覆盖)。
+        为 None 表示无白名单, 完全不产生额外开销。
+
+    :return: (从源复制的文件数, 白名单恢复数)
+
+    :raises RuntimeError: 白名单文件恢复失败 (此时已回滚, 目标保持原样)
 
     注意: 拷贝期间「旧存档(.mscm_bak) + 新存档」会同时存在, 峰值磁盘占用约为
     存档大小的 2 倍; 完成或回滚后备份即被清理。
@@ -100,6 +216,7 @@ def _mirror_copy(source_root, target_root, matcher):
 
     had_target = os.path.isdir(target_root)
     moved_to_bak = False
+    restored = 0
     try:
         if had_target:
             # 瞬时改名 (同盘, 不复制)
@@ -107,12 +224,21 @@ def _mirror_copy(source_root, target_root, matcher):
             moved_to_bak = True
 
         os.makedirs(target_root, exist_ok=True)
+
+        # 1) 白名单: 先从旧目标把「子服自己的版本」捞回来
+        #    (镜像同步会清空目标, 不在这里拷贝就等于丢失子服配置)
+        if whitelist is not None and moved_to_bak:
+            restored = _restore_whitelisted(bak, target_root, whitelist)
+
+        # 2) 再从源拷贝, 但跳过白名单路径 (源版本不覆盖子服版本)
         copied = 0
         for dirpath, _dirnames, filenames in os.walk(source_root):
             for fn in filenames:
                 full = os.path.join(dirpath, fn)
                 rel = os.path.relpath(full, source_root).replace("\\", "/")
                 if matcher(rel):
+                    continue
+                if whitelist is not None and whitelist(rel):
                     continue
                 target_path = os.path.join(target_root, os.path.relpath(full, source_root))
                 os.makedirs(os.path.dirname(target_path), exist_ok=True)
@@ -133,7 +259,7 @@ def _mirror_copy(source_root, target_root, matcher):
     # 成功: 删除备份
     if moved_to_bak:
         shutil.rmtree(bak, ignore_errors=True)
-    return copied
+    return copied, restored
 
 
 # ============================================================
@@ -215,6 +341,7 @@ def sync_core(source: mcdr.CommandSource, name: str, cfg: dict, check_online: bo
         return False
 
     matcher = _build_ignore_matcher(cfg.get("sync_ignore_files"))
+    whitelist = _build_whitelist_matcher(cfg.get("sync_whitelist"))
 
     source.reply(TAG + "§2开始全量同步 §6{}§2……请稍候".format(display))
     main_running = server is not None and server.is_server_running()
@@ -227,8 +354,9 @@ def sync_core(source: mcdr.CommandSource, name: str, cfg: dict, check_online: bo
         time.sleep(SAVE_FLUSH_WAIT)
 
     copied = -1
+    restored = 0
     try:
-        copied = _mirror_copy(source_root, target_root, matcher)
+        copied, restored = _mirror_copy(source_root, target_root, matcher, whitelist)
     except Exception as e:  # noqa: BLE001 - 同步失败需把错误反馈给执行者
         source.reply(TAG + "§c同步失败：{}".format(e))
         my_lib._log("[MSC] 同步 {} 失败: {}".format(name, e))
@@ -238,8 +366,13 @@ def sync_core(source: mcdr.CommandSource, name: str, cfg: dict, check_online: bo
             server.execute("save-on")
 
     if copied >= 0:
-        source.reply(
-            TAG + "§a同步完成！§r共复制 §e{}§r 个文件，用时 §e{:.1f}s".format(copied, time.time() - start_ts)
+        msg = TAG + "§a同步完成！§r共复制 §e{}§r 个文件".format(copied)
+        if restored > 0:
+            msg += "，保留子服自有 §e{}§r 个 (白名单)".format(restored)
+        msg += "，用时 §e{:.1f}s".format(time.time() - start_ts)
+        source.reply(msg)
+        my_lib._log(
+            "[MSC] 同步 {} 完成: 复制 {} 个, 白名单保留 {} 个".format(name, copied, restored)
         )
         my_lib.dispatch_event("server_synced", (name,))
         return True

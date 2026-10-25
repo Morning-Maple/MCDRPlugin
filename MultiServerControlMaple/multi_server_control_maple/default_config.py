@@ -49,6 +49,15 @@ DEFAULT_CONFIG = {
     #   sync_ignore_files : 复制时忽略的列表 (正则); 结尾带 / 表示忽略该目录下全部 (如 "session/");
     #                       其余按正则 re.search 匹配「相对 sync_source 的相对路径」(以 / 分隔);
     #                       session.lock 始终强制忽略
+    #   sync_whitelist : 【同步白名单】glob 语法, 命中路径一律采用【子服自己的版本】,
+    #                       源的版本不会被同步过去 (即「取消 A 的这个文件的同步」)。
+    #                       - "config/carpet.conf"  精确相对路径 (相对 sync_source)
+    #                       - "config/"             结尾带 / 表示整个目录
+    #                       - "*.conf"              通配符 (不含 / 时也会匹配文件名,
+    #                                               所以写 "carpet.conf" 可命中 config/carpet.conf)
+    #                       - 大小写不敏感; session.lock 永不参与
+    #                       - 若子服本身没有该文件, 则同步后仍然没有 (不会回退用源的版本)
+    #                       - 白名单优先于 sync_ignore_files
     #   description    : 备注 (可选)
     # 同步(sync)安全策略: 目标子服在线则拒绝同步(须先 stop); 同步前对主服 save-off + save-all,
     #   完成后 save-on, 避免拷贝时存档被写坏。
@@ -67,6 +76,7 @@ DEFAULT_CONFIG = {
             "sync_source":"",
             "sync_target":"",
             "sync_ignore_files":["session.lock"],
+            "sync_whitelist":[],
             "description": "主服镜像, 可与主服同步存档",
         },
         "create": {
@@ -92,7 +102,7 @@ EVENT_NS = "multi_server_control_maple"
 # 帮助信息
 # ============================================================
 
-PLUGIN_VERSION = "1.0.0"
+PLUGIN_VERSION = "1.1.0"
 
 # 帮助信息: 每条 = (权限键, 文本模板)。权限键对应 perm 配置, 用于按玩家权限过滤显示。
 # 文本模板中的 {p} 会被替换为命令前缀 (!!mscm)。

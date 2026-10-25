@@ -1,0 +1,12 @@
+{
+    "id": "adv_maple",
+    "version": "1.0.0",
+    "name": "AdvMaple",
+    "description": "Minecraft 成就同步插件 - 以指定玩家为基准, 把其已完成的成就同步给其他在线玩家",
+    "author": "Morning_Maple",
+    "link": "",
+    "dependencies": {
+        "mcdreforged": ">=2.15.7",
+        "minecraft_data_api": "*"
+    }
+}

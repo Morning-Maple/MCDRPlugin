@@ -1,0 +1,5 @@
+# Add your python package requirements here, just like regular requirements.txt
+
+mcdreforged>=2.15.7
+hjson
+parse

@@ -96,6 +96,8 @@ def _config_data_processor(read_data) -> bool:
     - 深补 perm 的子键 (新增命令的默认权限);
     - **不**递归进 servers: 它是用户数据, 否则会把用户删掉的示例子服又加回来。
       servers 内子服缺失的字段在读取时用 .get(默认值) 兜底。
+    - 例外: _migrate_server_fields 只为**已存在**的子服补缺失字段 (不新增/删除子服,
+      不覆盖用户已设置的值), 且补的是**中性值**以保证升级不改变线上同步行为。
     返回是否有改动 (有则 load_config_simple 会回写文件)。
     """
     if not isinstance(read_data, dict):
@@ -110,6 +112,48 @@ def _config_data_processor(read_data) -> bool:
         for perm_key, perm_default in default_config.DEFAULT_CONFIG["perm"].items():
             if perm_key not in perm:
                 perm[perm_key] = perm_default
+                changed = True
+    if _migrate_server_fields(read_data):
+        changed = True
+    return changed
+
+
+# 升级时给**已存在的子服**补这些新增配置项 —— 补的是**中性/空值**, 不是新装默认值。
+# 关键原则: 升级绝不能悄悄改变线上正在生效的行为。
+# 例如新装默认 sync_whitelist=["carpet.conf"], 但若给老配置也补成这个,
+# 那些子服原本被主服覆盖的 carpet.conf 会突然改为保留自己版本 —— 属于静默行为变更。
+# 刻意**不**迁移 sync_source / sync_target / can_sync 等核心字段:
+# 旧配置缺它们时读取端用 .get() 兜底, 强行写入反而可能改变线上行为。
+_SERVER_UPGRADABLE_FIELDS = {
+    # 该字段本来就强制忽略 session.lock, 补上无行为变化
+    "sync_ignore_files": ["session.lock"],
+    # 补空列表: 保持「纯镜像」旧行为, 与新装默认 ['carpet.conf'] 区分开
+    "sync_whitelist": [],
+    "sync_extra": [],
+}
+
+
+def _migrate_server_fields(read_data: dict) -> bool:
+    """给**已存在**的子服补上缺失的新增配置项。
+
+    两条铁律:
+      1. 字段**已存在就不动** (哪怕是空列表、是用户特意设的) —— 不覆盖任何用户值;
+      2. 补进去的是**中性默认值** (见 _SERVER_UPGRADABLE_FIELDS), 保证升级前后
+         同步行为完全一致, 不会因为升级而悄悄改变线上结果。
+
+    为什么不走「递归补全 servers」: 那会把用户删掉的示例子服又加回来。
+    这里只遍历用户实际拥有的子服, 因此既有平滑升级, 又不会复活示例数据。
+    """
+    servers = read_data.get("servers")
+    if not isinstance(servers, dict):
+        return False
+    changed = False
+    for _name, cfg in servers.items():
+        if not isinstance(cfg, dict):
+            continue
+        for field, default_value in _SERVER_UPGRADABLE_FIELDS.items():
+            if field not in cfg:
+                cfg[field] = copy.deepcopy(default_value)
                 changed = True
     return changed
 

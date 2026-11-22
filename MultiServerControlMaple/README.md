@@ -55,6 +55,9 @@ python pack.py
 
 用于让**子服保留自己的专属文件**，不被主服覆盖。典型场景：子服有自己的 `config/carpet.conf`，主服也有一份，但你希望同步后子服仍用自己那份。
 
+> **新装默认值就是 `["carpet.conf"]`** —— 全新配置开箱即用地保留子服 carpet 配置。
+> 但从旧版本升级的子服不会被自动改成这个值（升级保持原行为，`[]`），需要的话手动加。
+
 ```jsonc
 "create": {
     "can_sync": true,
@@ -150,6 +153,78 @@ python pack.py
 > 整次同步会**中止并回滚**，子服存档保持同步前的原样，不会出现「配置被删掉却又报同步成功」的情况。
 > 因为白名单路径既不会被主服覆盖、也不在拷贝范围内，备份里那份就是唯一副本，必须保证它不丢。
 
+#### 额外同步项（`sync_extra`）
+
+world 同步只覆盖 `sync_source` → `sync_target` 这一棵树。但很多插件配置在 world **外面**（如 `server/config/xxx.yml`），这些用 `sync_extra` 显式指定：
+
+```jsonc
+"mirror": {
+    "sync_source": "./server/world",
+    "sync_target": "C:/game-mirror/server/world",
+    "sync_extra": [
+        {
+            "source": "./server/config/carpet.conf",
+            "target": "C:/game-mirror/server/config/carpet.conf"
+        },
+        {
+            "source": "./server/plugins/MyPlugin",
+            "target": "C:/game-mirror/server/plugins/MyPlugin"
+        }
+    ]
+}
+```
+
+形态：列表，每项 `{"source": ..., "target": ...}`。路径可绝对，或相对 MCDR 工作目录。
+
+**同步行为：**
+
+| source 是 | 行为 |
+|---|---|
+| 文件 | 覆盖目标同名文件（目标不存在则创建） |
+| 目录 | **合并**：递归拷贝并覆盖同名文件；**目标独有的文件保留不动**（便于插件配置目录） |
+
+这与 world 同步的"镜像"语义不同 —— 额外项是**合并**，不会删掉子服原有的其他文件。
+
+**执行时机**：在 world 同步成功之后进行，共用同一次二次确认与 `save-off`/`save-all` 保护窗口。
+
+**失败处理**：单项失败**只回滚该项**（已覆盖的文件恢复原内容、新建的文件删除），其他项继续；最后汇总哪些失败。若存在失败项，会跳过 `server_synced` 事件派发，避免下游误判子服已完全一致。
+
+**配置校验（任一项不合法都会拒绝整次同步）：**
+
+| 校验 | 原因 |
+|---|---|
+| `source` / `target` 必填 | — |
+| `source` 必须存在 | 否则会静默漏同步 |
+| **`source` 与 `sync_source` 不得重叠** | 双向判断：不能是它的**内部路径**，也**不能是它的父目录**（如把 `./server` 配成源，会把整个 world 重复拷一遍，绕过 ignore/白名单） |
+| **`target` 与 `sync_target` 不得重叠** | 同上 |
+| `target` 不能位于主服 world 内 | 不能往主服存档里写东西 |
+| `source` 不能位于子服 world 内 | 不应从子服存档读取 |
+| `source` ≠ `target`，且 `target` 不能在 `source` 内部 | 否则会自我递归拷贝 |
+
+> 注：`sync_source` 的**兄弟目录**（如 `./server/world_extra`）是允许的 —— 只要不存在包含关系就行。
+
+出错时会在**游戏内**逐条列出错误并提示"同步已中止"，同时写入**服务端日志**，例如：
+
+```
+[MSC] [额外同步] 第 1 项 源与 world 同步源重叠 (不能是它的父目录或内部路径): E:\...\server
+[MSC] 同步已中止: 请修正 sync_extra 配置后重试
+```
+
+配置有误时**不会开始任何拷贝**（也不会 `save-off`），对现有数据零影响。
+
+#### 常见场景速查
+
+| 我想要… | 怎么配 |
+|---|---|
+| 子服用自己的 `carpet.conf`，其他都跟主服 | 新装默认已包含 `["carpet.conf"]`；旧配置请手动加 `"sync_whitelist": ["carpet.conf"]` |
+| 子服整个 `config/` 目录都用自己的一套 | `"sync_whitelist": ["config/"]` |
+| 所有 `.yml` 配置都用子服的 | `"sync_whitelist": ["*.yml"]` |
+| 某个文件**只放主服用**，子服不要有 | `"sync_ignore_files": ["那个文件名或其正则"]` |
+| 把 world 外的插件配置也同步过去 | 加 `"sync_extra": [{"source": ..., "target": ...}]` |
+| 让子服 `carpet.conf` 跟主服保持一致（放弃默认行为） | `"sync_whitelist": []` |
+
+> 一句话区分：**白名单保子服，黑名单删文件**。详见上面的[黑白名单对照](#黑白名单对照sync_ignore_files-vs-sync_whitelist)。
+
 ### start / stop / restart（子服进程控制，仅 Windows）
 
 - `!!mscm start <英文名>`：在子服 `path` 目录下开一个**独立新控制台窗口**执行 `start_command`。`start_command` 为 list 时用 `&&` 依次执行各条，为 str 时执行该脚本文件；均通过 `cmd /c`（子服进程退出后窗口自动关闭）。已在线则拒绝重复启动。发出启动命令后会**在后台线程轮询 SLP 监听启动**（间隔 `startup_poll_interval`，最长 `startup_timeout`），检测到在线即回报成功；监听期间该子服被加锁，其它 start/stop/restart 会被挡下并提示。
@@ -192,13 +267,99 @@ python pack.py
 | `start_command` | 启动命令（仅 Windows）：list 则进入 `path` 开 cmd 顺序执行各条；str 则执行 `path` 下指定脚本文件。启动会开独立新控制台窗口 |
 | `sync_source` | 同步源 = 主服（本机）的 `world` 目录（一般 `./server/world`），只同步 world 内资源 |
 | `sync_target` | 同步目标 = 子服的 `world` 目录 |
-| `sync_ignore_files` | 同步时忽略列表（**正则**）：结尾带 `/` 忽略整个目录（如 `session/`），其余按正则 `re.search` 匹配相对 `sync_source` 的相对路径；`session.lock` 始终忽略。⚠️ 写 `*.conf` 是无效正则，要写 `\.conf$` |
-| `sync_whitelist` | **同步白名单**（**glob**）：命中路径一律**采用子服自己的版本**，源的版本不会覆盖过去。语法与优先级详见「[黑白名单对照](#黑白名单对照sync_ignore_files-vs-sync_whitelist)」 |
+| `sync_ignore_files` | 同步时忽略列表（**正则**）：结尾带 `/` 忽略整个目录（如 `session/`），其余按正则 `re.search` 匹配相对 `sync_source` 的相对路径；`session.lock` 始终忽略。⚠️ 写 `*.conf` 是无效正则，要写 `\.conf$`。默认 `["session.lock"]` |
+| `sync_whitelist` | **同步白名单**（**glob**）：命中路径一律**采用子服自己的版本**，源的版本不会覆盖过去。**新装默认 `["carpet.conf"]`**（carpet 配置几乎总是各服不同）；升级时为保持原行为补 `[]`。语法与优先级详见「[黑白名单对照](#黑白名单对照sync_ignore_files-vs-sync_whitelist)」 |
+| `sync_extra` | **额外同步项**：把 world 之外的文件/目录一并同步，列表，每项 `{"source": ..., "target": ...}`。目录为**合并**语义（目标独有文件保留）。**默认 `[]`**。详见「[额外同步项](#额外同步项sync_extra)」 |
 | `description` | 备注（可选） |
 
 > **启停仅适配 Windows。** 同步安全策略：目标子服在线则拒绝同步（须先 `stop`）；同步前对主服 `save-off`+`save-all`，完成后 `save-on`。
 
 首次加载会写入 `mirror` / `create` 两个示例子服，可自行增删修改。
+
+### 完整配置示例
+
+一个「镜像服」的典型配置 —— 同步 world，保留子服自己的 `carpet.conf`，并额外带上两个 world 之外的插件配置：
+
+```jsonc
+{
+    "use_suggest_command": true,
+    "probe_timeout": 1.0,
+    "startup_timeout": 60,
+    "startup_poll_interval": 5,
+    "perm": {
+        "help": 0, "reload": 3, "show": 0,
+        "sync": 3, "start": 3, "stop": 3, "restart": 3
+    },
+    "servers": {
+        "mirror": {
+            "cn_name": "镜像服",
+            "can_sync": true,
+            "host": "127.0.0.1",
+            "port": 25566,
+            "rcon_enable": true,
+            "rcon_port": 25576,
+            "rcon_password": "改成你自己的密码",
+            "path": "D:/game-mirror",
+
+            // ---- world 同步 ----
+            "sync_source": "./server/world",
+            "sync_target": "D:/game-mirror/server/world",
+
+            // 复制的忽略列表 (正则)。session.lock 本来就强制忽略, 可不写
+            "sync_ignore_files": ["session.lock", "logs/"],
+
+            // 白名单: 这些路径用**子服自己的版本**, 不被主服覆盖
+            // "carpet.conf" 不含 / 时会按文件名匹配, 等价于「任意目录下的 carpet.conf」
+            "sync_whitelist": ["carpet.conf", "datapacks/local/"],
+
+            // 额外同步项: world 之外的东西 (文件或目录)
+            // 目录为合并语义: 只覆盖同名文件, 子服独有的文件保留
+            "sync_extra": [
+                {
+                    "source": "./server/config/carpet.conf",
+                    "target": "D:/game-mirror/server/config/carpet.conf"
+                },
+                {
+                    "source": "./server/config/MyPlugin",
+                    "target": "D:/game-mirror/server/config/MyPlugin"
+                }
+            ],
+
+            "description": "主服镜像, 可与主服同步存档"
+        },
+        "create": {
+            "can_sync": false,
+            "host": "127.0.0.1",
+            "port": 25567,
+            "description": "创造服, 独立存档"
+        }
+    }
+}
+```
+
+### 升级注意（旧版本 → 1.2.0）
+
+**升级不会改变你线上正在生效的同步行为。** 配置加载时只会给**已存在的子服**补上缺失的字段，且遵循两条原则：
+
+1. **字段已存在就完全不动** —— 哪怕是你特意设的空列表，也不会被覆盖
+2. **补进去的是中性值**，不是新装默认值
+
+| 字段 | 已存在 | 缺失时补的（升级） | 新装默认 |
+|---|---|---|---|
+| `sync_whitelist` | **不动** | `[]`（= 纯镜像，与旧行为一致） | `["carpet.conf"]` |
+| `sync_extra` | **不动** | `[]` | `[]` |
+| `sync_ignore_files` | **不动** | `["session.lock"]`（本来就强制忽略，无影响） | `["session.lock"]` |
+
+> 💡 **为什么升级补的是 `[]` 而不是 `["carpet.conf"]`**：
+> 老配置里没有这个字段，说明子服的 `carpet.conf` 一直是**被主服覆盖**的。
+> 如果升级时补成 `["carpet.conf"]`，行为会**悄悄变成保留子服版本** —— 这类静默变更很危险。
+> 所以升级保持原样，想启用新默认行为的话请**手动**加：
+>
+> ```jsonc
+> "sync_whitelist": ["carpet.conf"]
+> ```
+
+同时：**不会**把你删掉的示例子服（`mirror` / `create`）加回来 —— 迁移只遍历你实际拥有的子服。
 
 ## 自定义事件
 

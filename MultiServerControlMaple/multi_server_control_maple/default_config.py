@@ -51,6 +51,7 @@ DEFAULT_CONFIG = {
     #                       session.lock 始终强制忽略
     #   sync_whitelist : 【同步白名单】glob 语法, 命中路径一律采用【子服自己的版本】,
     #                       源的版本不会被同步过去 (即「取消 A 的这个文件的同步」)。
+    #                       默认 ["carpet.conf"] —— carpet 的配置几乎总是各服不同, 保留子服自己的那份。
     #                       - "config/carpet.conf"  精确相对路径 (相对 sync_source)
     #                       - "config/"             结尾带 / 表示整个目录
     #                       - "*.conf"              通配符 (不含 / 时也会匹配文件名,
@@ -58,6 +59,14 @@ DEFAULT_CONFIG = {
     #                       - 大小写不敏感; session.lock 永不参与
     #                       - 若子服本身没有该文件, 则同步后仍然没有 (不会回退用源的版本)
     #                       - 白名单优先于 sync_ignore_files
+    #   sync_extra     : 【额外同步项】把 world 之外的文件/目录也一并同步过去, 列表,
+    #                      每项形如 {"source": "...", "target": "..."}。路径可绝对或相对 MCDR 工作目录。
+    #                        - source 是文件 -> 覆盖目标同名文件
+    #                        - source 是目录 -> 递归拷贝并覆盖同名文件, 目标独有的文件保留不动
+    #                        - 单项失败只回滚该项, 不影响其他项
+    #                        - source 不能位于 sync_source 内 (那部分已由 world 同步覆盖),
+    #                          否则整次同步会被拒绝并在游戏内/日志报错
+    #                        - target 不能位于 sync_target 内; target 也不能在 source 里面
     #   description    : 备注 (可选)
     # 同步(sync)安全策略: 目标子服在线则拒绝同步(须先 stop); 同步前对主服 save-off + save-all,
     #   完成后 save-on, 避免拷贝时存档被写坏。
@@ -76,7 +85,8 @@ DEFAULT_CONFIG = {
             "sync_source":"",
             "sync_target":"",
             "sync_ignore_files":["session.lock"],
-            "sync_whitelist":[],
+            "sync_whitelist":["carpet.conf"],
+            "sync_extra":[],
             "description": "主服镜像, 可与主服同步存档",
         },
         "create": {
@@ -102,7 +112,7 @@ EVENT_NS = "multi_server_control_maple"
 # 帮助信息
 # ============================================================
 
-PLUGIN_VERSION = "1.1.0"
+PLUGIN_VERSION = "1.2.0"
 
 # 帮助信息: 每条 = (权限键, 文本模板)。权限键对应 perm 配置, 用于按玩家权限过滤显示。
 # 文本模板中的 {p} 会被替换为命令前缀 (!!mscm)。

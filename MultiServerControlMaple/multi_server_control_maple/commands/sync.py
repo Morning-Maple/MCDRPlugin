@@ -19,6 +19,7 @@ import fnmatch
 import os
 import re
 import shutil
+import tempfile
 import time
 
 import mcdreforged as mcdr
@@ -189,6 +190,196 @@ def _restore_whitelisted(bak_root, target_root, whitelist):
     return restored
 
 
+# ============================================================
+# 额外同步项 (sync_extra): 把 world 之外的文件/目录一并同步
+# ============================================================
+
+def _norm_path(path: str) -> str:
+    """路径归一化 (绝对化 + 规范化 + 统一大小写), 仅用于比较包含关系"""
+    return os.path.normcase(os.path.normpath(os.path.abspath(path)))
+
+
+def _is_inside(child: str, parent: str) -> bool:
+    """child 是否等于 parent 或位于 parent 内部 (大小写不敏感, Windows 语义)"""
+    if not parent:
+        return False
+    c, p = _norm_path(child), _norm_path(parent)
+    return c == p or c.startswith(p + os.sep)
+
+
+def _overlaps(a: str, b: str) -> bool:
+    """两个路径是否存在任何重叠 (相等 / 一方在另一方内部)。
+
+    必须用双向判断: 只判断「a 在 b 内」会漏掉「a 是 b 的祖先」的情况 ——
+    例如额外项源配成 ./server (它包含 ./server/world), 单向判断会放行,
+    随后会把整个 world 再拷一遍, 绕过 sync_ignore_files / sync_whitelist。
+    """
+    return _is_inside(a, b) or _is_inside(b, a)
+
+
+def _parse_extra_items(cfg: dict):
+    """解析并校验 sync_extra 配置。
+
+    :return: ([(源绝对路径, 目标绝对路径), ...], [错误信息, ...])
+
+    设计约定: 任何一项配置错误都**拒绝整次同步** (而不是跳过该项),
+    否则用户会以为同步完整成功。校验项:
+      - source / target 均必填
+      - source 必须存在
+      - **source 不得位于 world 同步源内** (那部分已由 world 同步覆盖, 重复配置会互相打架)
+      - target 不得位于 world 同步目标内 (同理)
+      - source 与 target 不得相同, target 不得位于 source 内部 (会造成自我递归拷贝)
+    """
+    raw = cfg.get("sync_extra")
+    if not raw:
+        return [], []
+    if not isinstance(raw, list):
+        return [], ["sync_extra 必须是列表，每项形如 {\"source\": \"...\", \"target\": \"...\"}"]
+
+    sync_source = cfg.get("sync_source") or ""
+    sync_target = cfg.get("sync_target") or ""
+
+    items = []
+    errors = []
+    for index, entry in enumerate(raw, 1):
+        tag = "第 {} 项".format(index)
+        if not isinstance(entry, dict):
+            errors.append("{} 格式错误 (应为 {{\"source\": ..., \"target\": ...}})".format(tag))
+            continue
+        src = str(entry.get("source") or "").strip()
+        tgt = str(entry.get("target") or "").strip()
+        if not src or not tgt:
+            errors.append("{} 缺少 source 或 target".format(tag))
+            continue
+
+        src_abs = os.path.abspath(src)
+        tgt_abs = os.path.abspath(tgt)
+
+        if not os.path.exists(src_abs):
+            errors.append("{} 源不存在: {}".format(tag, src_abs))
+            continue
+        # 与 world 同步的源/目标**双向**互不重叠:
+        # 单向判断会漏掉「额外项源是 world 父目录」的情况 (如 ./server 包含 ./server/world),
+        # 那样会把整个 world 重复拷一遍, 绕过 ignore / 白名单, 覆盖子服自有配置。
+        if _overlaps(src_abs, sync_source):
+            errors.append(
+                "{} 源与 world 同步源重叠 (不能是它的父目录或内部路径): {}".format(tag, src_abs)
+            )
+            continue
+        if _overlaps(tgt_abs, sync_target):
+            errors.append(
+                "{} 目标与 world 同步目标重叠 (不能是它的父目录或内部路径): {}".format(tag, tgt_abs)
+            )
+            continue
+        # 额外项不得写进主服 world, 也不应从子服 world 读取
+        if sync_source and _is_inside(tgt_abs, sync_source):
+            errors.append("{} 目标不能位于主服 world 内: {}".format(tag, tgt_abs))
+            continue
+        if sync_target and _is_inside(src_abs, sync_target):
+            errors.append("{} 源不能位于子服 world 内: {}".format(tag, src_abs))
+            continue
+        if _norm_path(src_abs) == _norm_path(tgt_abs):
+            errors.append("{} 源与目标相同: {}".format(tag, src_abs))
+            continue
+        if _is_inside(tgt_abs, src_abs):
+            errors.append("{} 目标不能位于源内部 (会自我递归拷贝): {}".format(tag, tgt_abs))
+            continue
+
+        items.append((src_abs, tgt_abs))
+
+    return items, errors
+
+
+def _rollback_extra(backups: dict, created_files: list, created_dirs: list):
+    """回滚单个额外项: 恢复被覆盖的文件, 删除新建的文件与新建的空目录。"""
+    for dest, bak_path in backups.items():
+        try:
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            shutil.copy2(bak_path, dest)
+        except OSError as e:
+            my_lib._log("[MSC] 额外项回滚失败(恢复) {}: {}".format(dest, e))
+    for dest in created_files:
+        try:
+            if os.path.exists(dest):
+                os.remove(dest)
+        except OSError as e:
+            my_lib._log("[MSC] 额外项回滚失败(删除) {}: {}".format(dest, e))
+    # 由深到浅删空目录 (rmdir 只会删空目录, 失败即说明里面有别的东西, 忽略)
+    for directory in reversed(created_dirs):
+        try:
+            os.rmdir(directory)
+        except OSError:
+            pass
+
+
+def _sync_extra_item(src: str, tgt: str):
+    """把一个额外项从源同步到目标 (**合并语义**, 单项失败自动回滚)。
+
+    - 源是**目录**: 递归拷贝其下所有文件, 覆盖目标同名文件;
+      **目标独有的文件保留不动** (便于插件配置目录这类场景)
+    - 源是**文件**: 直接覆盖目标同名文件
+
+    与 world 同步的区别: 这里不做「整目录改名备份」, 而是逐文件备份,
+    因此子服原有的其他文件不会丢; 失败时把已覆盖的文件恢复原内容、
+    把新建的文件删掉。
+
+    :return: (成功拷贝的文件数, 错误信息或 None)
+    """
+    created_files = []
+    created_dirs = []
+    backups = {}
+    # 备份放系统临时目录, 避免污染目标目录; copy2 支持跨盘。
+    # 必须在 try 内部创建: 创建失败 (TEMP 不可用/磁盘满/权限) 也要走回滚与错误上报,
+    # 不能把异常抛给调用方中断整轮额外项同步。
+    backup_dir = None
+    try:
+        backup_dir = tempfile.mkdtemp(prefix="mscm_extra_bak_")
+        if os.path.isdir(src):
+            pairs = []
+            for dirpath, _dirnames, filenames in os.walk(src):
+                for fn in filenames:
+                    full = os.path.join(dirpath, fn)
+                    rel = os.path.relpath(full, src)
+                    pairs.append((full, os.path.join(tgt, rel)))
+        else:
+            pairs = [(src, tgt)]
+
+        if not pairs:
+            return 0, None  # 空目录, 无事可做
+
+        for full, dest in pairs:
+            parent = os.path.dirname(dest)
+            if parent and not os.path.isdir(parent):
+                # 记录本次新建的各级目录, 供回滚时按由深到浅清理
+                missing = []
+                cur = parent
+                while cur and not os.path.isdir(cur):
+                    missing.append(cur)
+                    nxt = os.path.dirname(cur)
+                    if nxt == cur:
+                        break
+                    cur = nxt
+                os.makedirs(parent, exist_ok=True)
+                created_dirs.extend(reversed(missing))  # 浅 -> 深
+
+            if os.path.exists(dest):
+                bak_path = os.path.join(backup_dir, str(len(backups)))
+                shutil.copy2(dest, bak_path)
+                backups[dest] = bak_path
+            else:
+                created_files.append(dest)
+
+            shutil.copy2(full, dest)
+
+        return len(pairs), None
+    except BaseException as e:  # noqa: BLE001 - 需先回滚再上报
+        _rollback_extra(backups, created_files, created_dirs)
+        return 0, e
+    finally:
+        if backup_dir:
+            shutil.rmtree(backup_dir, ignore_errors=True)
+
+
 def _mirror_copy(source_root, target_root, matcher, whitelist=None):
     """镜像复制 (可回滚): 把现有目标改名为备份, 拷贝完成后再删备份;
     中途出错则删掉半成品、把备份改回原样, 保证子服存档不被破坏。
@@ -343,6 +534,16 @@ def sync_core(source: mcdr.CommandSource, name: str, cfg: dict, check_online: bo
     matcher = _build_ignore_matcher(cfg.get("sync_ignore_files"))
     whitelist = _build_whitelist_matcher(cfg.get("sync_whitelist"))
 
+    # 额外同步项 (world 之外的文件/目录): 配置错误直接拒绝整次同步,
+    # 避免用户误以为同步完整成功却漏了关键配置。
+    extra_items, extra_errors = _parse_extra_items(cfg)
+    if extra_errors:
+        for err in extra_errors:
+            source.reply(TAG + "§c[额外同步] " + err)
+            my_lib._log("[MSC] 同步 {} 的 sync_extra 配置错误: {}".format(name, err))
+        source.reply(TAG + "§c同步已中止: 请修正 §esync_extra §c配置后重试")
+        return False
+
     source.reply(TAG + "§2开始全量同步 §6{}§2……请稍候".format(display))
     main_running = server is not None and server.is_server_running()
     start_ts = time.time()
@@ -366,14 +567,57 @@ def sync_core(source: mcdr.CommandSource, name: str, cfg: dict, check_online: bo
             server.execute("save-on")
 
     if copied >= 0:
+        # ---- 额外同步项 (world 同步成功后才做; 单项失败只回滚该项) ----
+        extra_copied = 0
+        extra_failed = []
+        for index, (src_path, tgt_path) in enumerate(extra_items, 1):
+            # 防御: 即使 _sync_extra_item 自身抛出预期外异常, 也只影响该项,
+            # 不能让整轮额外项同步中断 (否则收不到汇总, 也漏了后面的项)。
+            try:
+                files, err = _sync_extra_item(src_path, tgt_path)
+            except Exception as e:  # noqa: BLE001 - 单项异常不应中断整轮
+                files, err = 0, e
+            if err is None:
+                extra_copied += files
+                my_lib._log(
+                    "[MSC] 额外同步 {}/{} 完成: {} -> {} ({} 个文件)".format(
+                        index, len(extra_items), src_path, tgt_path, files
+                    )
+                )
+            else:
+                extra_failed.append(src_path)
+                source.reply(
+                    TAG + "§c[额外同步] 失败: §e{}§c ({})".format(src_path, err)
+                )
+                my_lib._log(
+                    "[MSC] 额外同步 {}/{} 失败: {} -> {}: {}".format(
+                        index, len(extra_items), src_path, tgt_path, err
+                    )
+                )
+
         msg = TAG + "§a同步完成！§r共复制 §e{}§r 个文件".format(copied)
         if restored > 0:
             msg += "，保留子服自有 §e{}§r 个 (白名单)".format(restored)
+        if extra_items:
+            msg += "，额外项 §e{}§r 个文件".format(extra_copied)
+            if extra_failed:
+                msg += " §c({} 项失败)".format(len(extra_failed))
         msg += "，用时 §e{:.1f}s".format(time.time() - start_ts)
         source.reply(msg)
         my_lib._log(
-            "[MSC] 同步 {} 完成: 复制 {} 个, 白名单保留 {} 个".format(name, copied, restored)
+            "[MSC] 同步 {} 完成: 复制 {} 个, 白名单保留 {} 个, 额外项 {} 个文件, 失败 {} 项".format(
+                name, copied, restored, extra_copied, len(extra_failed)
+            )
         )
+
+        if extra_failed:
+            # 额外项不完整时不派发同步完成事件, 避免下游误判子服已完全一致
+            source.reply(
+                TAG + "§e注意: 有额外同步项失败, 子服可能缺少必要配置; "
+                "§7已跳过 §fserver_synced§7 事件派发"
+            )
+            return True
+
         my_lib.dispatch_event("server_synced", (name,))
         return True
     return False
